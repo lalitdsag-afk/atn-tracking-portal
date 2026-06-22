@@ -246,3 +246,4 @@ if all_active and isinstance(all_active, list):
             "Current Station Status": status, "Latest Remarks Log": row['remarks']
         })
     st.table(display_data)
+    # Triggering a fresh rebuild
