@@ -2,13 +2,12 @@ import streamlit as st
 import requests
 from datetime import datetime
 
-# --- SUPABASE CONFIGURATION ---
-# (For best practice later, these should be placed in Streamlit's advanced Secrets tab)
-SUPABASE_URL = st.text_input("Enter Supabase URL (From Supabase Settings)", type="password")
-SUPABASE_KEY = st.text_input("Enter Supabase Anon Key (From Supabase Settings)", type="password")
-
-if not SUPABASE_URL or not SUPABASE_KEY:
-    st.warning("⚠️ Please input your Supabase Cloud credentials above to activate permanent database storage.")
+# --- SECURE CLOUD CONFIGURATION ---
+try:
+    SUPABASE_URL = st.secrets["SUPABASE_URL"]
+    SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+except (KeyError, FileNotFoundError):
+    st.error("🔑 **Missing Database Configuration!** Please add `SUPABASE_URL` and `SUPABASE_KEY` to your Streamlit Cloud Secrets dashboard.")
     st.stop()
 
 HEADERS = {
@@ -30,7 +29,8 @@ def fetch_all_active(ministry="All", wing="All"):
 
 def get_counts():
     res = requests.get(f"{SUPABASE_URL}/rest/v1/atns?is_closed=eq.0", headers=HEADERS).json()
-    if not isinstance(res, list): return {"total":0, "wings":0, "fa":0, "go":0, "ext":0}
+    if not isinstance(res, list): 
+        return {"total": 0, "wings": 0, "fa": 0, "go": 0, "ext": 0}
     return {
         "total": len(res),
         "wings": len([x for x in res if not x.get('date_sent_to_fa')]),
@@ -48,7 +48,14 @@ def update_password(uid, new_pwd):
     url = f"{SUPABASE_URL}/rest/v1/users?username=eq.{uid}"
     requests.patch(url, headers=HEADERS, json={"password": new_pwd})
 
-# --- ARRAYS ---
+def append_remark(old_remarks, role, new_text):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    header = f"[{role} - {timestamp}]: "
+    if old_remarks and old_remarks.strip():
+        return f"{old_remarks}\n{header}{new_text}"
+    return f"{header}{new_text}"
+
+# --- CONFIGURATION ARRAYS ---
 WING_NAMES = ["Inspection", "EA", "Bangalore", "Mumbai", "Kolkata", "Chennai"]
 MINISTRIES = ["MoES", "MNRE", "MoEFCC", "DBT", "DST", "DSIR", "DAE", "DoS"]
 EXTERNAL_DESTINATIONS = ["DGA", "F&C", "HQ"]
@@ -88,23 +95,20 @@ else:
         if st.button("Update Password"):
             if new_pwd == confirm_pwd and new_pwd.strip() != "":
                 update_password(current_user, new_pwd.strip())
-                st.success("Password modified in cloud!")
+                st.success("Password modified in cloud database!")
             else:
-                st.error("Passwords mismatch.")
+                st.error("Passwords mismatch or empty value.")
 
-    if st.sidebar.button("残留 Log Out"):
+    if st.sidebar.button("🚪 Log Out"):
         st.session_state["authenticated"] = False
         st.session_state["user_info"] = None
         st.rerun()
 
-def append_remark(old_remarks, role, new_text):
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    header = f"[{role} - {timestamp}]: "
-    if old_remarks and old_remarks.strip():
-        return f"{old_remarks}\n{header}{new_text}"
-    return f"{header}{new_text}"
+# --- ROLE-BASED DASHBOARD FILTER INITIALIZATION ---
+filter_ministry = "All"
+filter_wing = "All"
 
-# 0. DG DASHBOARD
+# --- 0. DG DASHBOARD ROLE ---
 if user_role == "DG (Director General)":
     st.header("🦅 Director General (DG) Executive Overview")
     counts = get_counts()
@@ -124,7 +128,7 @@ if user_role == "DG (Director General)":
     with f_col2:
         filter_wing = st.selectbox("Filter by Handling Wing", ["All"] + WING_NAMES)
 
-# 1. F&A CELL (NODAL)
+# --- 1. F&A CELL (NODAL) ROLE ---
 if user_role == "F&A Cell (Nodal)":
     st.header("📋 Upload New Audit Action Taken Note (ATN)")
     with st.form("atn_upload_form", clear_on_submit=True):
@@ -156,43 +160,50 @@ if user_role == "F&A Cell (Nodal)":
     st.markdown("---")
     st.header("📥 F&A Verification & Scrutiny Queue")
     fa_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_to_fa=not.is.null&date_sent_to_go=is.null&is_closed=eq.0", headers=HEADERS).json()
-    if fa_items:
+    if fa_items and isinstance(fa_items, list):
         for item in fa_items:
             with st.expander(f"🟡 Reviewing: Report {item['report_no']} [{item['ministry_dept']}]", expanded=True):
                 st.write(f"**Subject:** {item['subject']}")
-                if item['remarks']: st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"fa_hist_{item['id']}")
+                if item['remarks']: 
+                    st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"fa_hist_{item['id']}")
                 sent_date = st.date_input("Select Date Forwarded to GO", key=f"fa_date_{item['id']}")
                 fa_remark = st.text_input("Add F&A Verification Remarks", key=f"fa_rem_{item['id']}")
                 if st.button("Forward to Group Officer (GO)", key=f"fa_btn_{item['id']}"):
                     updated_remarks = append_remark(item['remarks'], "F&A Cell (Scrutiny)", fa_remark) if fa_remark.strip() else item['remarks']
                     requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"date_sent_to_go": str(sent_date), "remarks": updated_remarks})
                     st.rerun()
+    else:
+        st.info("No documents are currently awaiting F&A Verification.")
 
-# 2. WING QUEUES
+# --- 2. OPERATIONAL WINGS ROLE ---
 if user_role in WING_NAMES:
     st.header(f"📥 Action Queue for {user_role} Branch")
     wing_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?assigned_wing=eq.{user_role}&date_sent_to_fa=is.null&is_closed=eq.0", headers=HEADERS).json()
-    if wing_items:
+    if wing_items and isinstance(wing_items, list):
         for item in wing_items:
             with st.expander(f"🔴 Pending: Report {item['report_no']}", expanded=True):
                 st.write(f"**Subject:** {item['subject']}")
-                if item['remarks']: st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"wing_hist_{item['id']}")
+                if item['remarks']: 
+                    st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"wing_hist_{item['id']}")
                 sent_date = st.date_input("Select Date Sent to F&A Cell", key=f"wing_date_{item['id']}")
                 wing_remark = st.text_input("Add Wing Action Remarks", key=f"wing_rem_{item['id']}")
                 if st.button("Forward back to F&A Cell", key=f"wing_btn_{item['id']}"):
                     updated_remarks = append_remark(item['remarks'], f"{user_role} Wing", wing_remark) if wing_remark.strip() else item['remarks']
                     requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"date_sent_to_fa": str(sent_date), "remarks": updated_remarks})
                     st.rerun()
+    else:
+        st.info("🎉 Clear queue! No files currently assigned to your wing.")
 
-# 3. GROUP OFFICER (GO)
+# --- 3. GROUP OFFICER (GO) ROLE ---
 if user_role == "Group Officer (GO)":
     st.header("👑 GO Final Action & Closure Deck")
     go_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_to_go=not.is.null&date_sent_external=is.null&is_closed=eq.0", headers=HEADERS).json()
-    if go_items:
+    if go_items and isinstance(go_items, list):
         for item in go_items:
             with st.expander(f"🔵 Action Required: Report {item['report_no']}", expanded=True):
                 st.write(f"**Originating Wing:** {item['assigned_wing']} | **Subject:** {item['subject']}")
-                if item['remarks']: st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"go_hist_{item['id']}")
+                if item['remarks']: 
+                    st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"go_hist_{item['id']}")
                 col_d1, col_d2 = st.columns(2)
                 with col_d1: ext_date = st.date_input("Date Dispatched Outward", key=f"go_date_{item['id']}")
                 with col_d2: dest = st.selectbox("External Destination", EXTERNAL_DESTINATIONS, key=f"go_dest_{item['id']}")
@@ -201,14 +212,17 @@ if user_role == "Group Officer (GO)":
                     updated_remarks = append_remark(item['remarks'], "Group Officer", go_remark) if go_remark.strip() else item['remarks']
                     requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"date_sent_external": str(ext_date), "external_destination": dest, "remarks": updated_remarks})
                     st.rerun()
+    else:
+        st.info("No incoming files awaiting initialization/dispatch signatures.")
 
     st.markdown("---")
     st.subheader("🌐 Active External Trackers (Awaiting Closure)")
     ext_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_external=not.is.null&is_closed=eq.0", headers=HEADERS).json()
-    if ext_items:
+    if ext_items and isinstance(ext_items, list):
         for item in ext_items:
             with st.expander(f"📌 Report No. {item['report_no']} ➔ Currently with **{item['external_destination']}**", expanded=False):
-                if item['remarks']: st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"ext_hist_{item['id']}")
+                if item['remarks']: 
+                    st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"ext_hist_{item['id']}")
                 
                 col_up1, col_up2 = st.columns([2, 2])
                 with col_up1:
@@ -230,12 +244,12 @@ if user_role == "Group Officer (GO)":
                     requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"is_closed": 1, "remarks": updated_remarks})
                     st.rerun()
 
-# --- 4. GLOBAL DASHBOARD ---
+# --- 4. GLOBAL DASHBOARD (MASTER BOARD) ---
 if user_role != "DG (Director General)":
     st.markdown("---")
     st.header("📊 Live Active Pipeline (Master Board)")
 
-all_active = fetch_all_active(ministry=filter_ministry if user_role == "DG (Director General)" else "All", wing=filter_wing if user_role == "DG (Director General)" else "All")
+all_active = fetch_all_active(ministry=filter_ministry, wing=filter_wing)
 if all_active and isinstance(all_active, list):
     display_data = []
     for row in all_active:
@@ -246,4 +260,5 @@ if all_active and isinstance(all_active, list):
             "Current Station Status": status, "Latest Remarks Log": row['remarks']
         })
     st.table(display_data)
-    # Triggering a fresh rebuild
+else:
+    st.info("The monitoring grid is currently empty. No active items match the search filters.")
