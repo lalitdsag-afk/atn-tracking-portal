@@ -59,6 +59,8 @@ def append_remark(old_remarks, role, new_text):
 WING_NAMES = ["Inspection", "EA", "Bangalore", "Mumbai", "Kolkata", "Chennai"]
 MINISTRIES = ["MoES", "MNRE", "MoEFCC", "DBT", "DST", "DSIR", "DAE", "DoS"]
 EXTERNAL_DESTINATIONS = ["DGA", "F&C", "HQ"]
+PAC_OPTIONS = ["PAC", "Non PAC"]
+JOURNEY_OPTIONS = ["1st Journey", "2nd Journey"]
 
 # --- APP LAYOUT ---
 st.set_page_config(page_title="ATN Milestone Portal", layout="wide")
@@ -136,22 +138,30 @@ if user_role == "F&A Cell (Nodal)":
         with col1:
             year = st.text_input("Year", placeholder="e.g., 2025-26")
             report_no = st.text_input("Report No.", placeholder="e.g., 05 of 2026")
-        with col2:
             para_no = st.text_input("Para Number", placeholder="e.g., Para 4.1")
+        with col2:
             ministry = st.selectbox("Ministry / Department", MINISTRIES)
-        with col3:
             wing = st.selectbox("Assign to Wing/Branch", WING_NAMES)
+            pac_status = st.selectbox("Classification Status", PAC_OPTIONS)
+        with col3:
+            journey_status = st.selectbox("Processing Stage", JOURNEY_OPTIONS)
+            t_wing = st.date_input("Target Date for Wing Submission")
+            t_fa = st.date_input("Target Date for F&A Verification")
+            
+        col_extra1, col_extra2 = st.columns(2)
+        with col_extra1:
+            t_upload = st.date_input("Target Date for Uploading")
+        with col_extra2:
+            nodal_remark = st.text_input("Initial Entry Remarks / Special Instructions")
+            
         subject = st.text_area("Subject / Audit Paragraph Description")
-        nodal_remark = st.text_input("Initial Entry Remarks / Special Instructions")
-        col4, col5 = st.columns(2)
-        with col4: t_wing = st.date_input("Target Date for Wing Submission")
-        with col5: t_fa = st.date_input("Target Date for F&A Verification")
         
         if st.form_submit_button("🚀 Upload & Dispatch to Wing/Branch") and year and report_no and subject:
             formatted_remark = append_remark("", "F&A Cell (Nodal Entry)", nodal_remark) if nodal_remark.strip() else ""
             payload = {
                 "year": year, "report_no": report_no, "chapter_number": para_no, "ministry_dept": ministry,
-                "subject": subject, "assigned_wing": wing, "target_date_wing": str(t_wing), "target_date_fa": str(t_fa), "remarks": formatted_remark
+                "subject": subject, "assigned_wing": wing, "target_date_wing": str(t_wing), "target_date_fa": str(t_fa), 
+                "remarks": formatted_remark, "pac_status": pac_status, "journey_status": journey_status, "target_date_upload": str(t_upload)
             }
             requests.post(f"{SUPABASE_URL}/rest/v1/atns", headers=HEADERS, json=payload)
             st.success("Successfully registered and sent ATN to wing branch!")
@@ -164,6 +174,7 @@ if user_role == "F&A Cell (Nodal)":
         for item in fa_items:
             with st.expander(f"🟡 Reviewing: Report {item['report_no']} [{item['ministry_dept']}]", expanded=True):
                 st.write(f"**Subject:** {item['subject']}")
+                st.caption(f"🛡️ **Type:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Stage:** {item.get('journey_status', '1st Journey')} | 📅 **Target Upload:** {item.get('target_date_upload', 'N/A')}")
                 if item['remarks']: 
                     st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"fa_hist_{item['id']}")
                 sent_date = st.date_input("Select Date Forwarded to GO", key=f"fa_date_{item['id']}")
@@ -183,6 +194,7 @@ if user_role in WING_NAMES:
         for item in wing_items:
             with st.expander(f"🔴 Pending: Report {item['report_no']}", expanded=True):
                 st.write(f"**Subject:** {item['subject']}")
+                st.caption(f"🛡️ **Type:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Stage:** {item.get('journey_status', '1st Journey')} | 📅 **Target Upload:** {item.get('target_date_upload', 'N/A')}")
                 if item['remarks']: 
                     st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"wing_hist_{item['id']}")
                 sent_date = st.date_input("Select Date Sent to F&A Cell", key=f"wing_date_{item['id']}")
@@ -202,6 +214,7 @@ if user_role == "Group Officer (GO)":
         for item in go_items:
             with st.expander(f"🔵 Action Required: Report {item['report_no']}", expanded=True):
                 st.write(f"**Originating Wing:** {item['assigned_wing']} | **Subject:** {item['subject']}")
+                st.caption(f"🛡️ **Type:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Stage:** {item.get('journey_status', '1st Journey')} | 📅 **Target Upload:** {item.get('target_date_upload', 'N/A')}")
                 if item['remarks']: 
                     st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"go_hist_{item['id']}")
                 col_d1, col_d2 = st.columns(2)
@@ -256,8 +269,9 @@ if all_active and isinstance(all_active, list):
         status = f"🌐 With {row['external_destination']}" if row.get('date_sent_external') else ("👑 With GO" if row.get('date_sent_to_go') else ("💼 With F&A Cell" if row.get('date_sent_to_fa') else "⏳ With Wing"))
         display_data.append({
             "Year": row['year'], "Report No": row['report_no'], "Para": row['chapter_number'], 
-            "Ministry/Dept": row['ministry_dept'], "Handling Branch": row['assigned_wing'], 
-            "Current Station Status": status, "Latest Remarks Log": row['remarks']
+            "Classification": row.get('pac_status', 'Non PAC'), "Journey": row.get('journey_status', '1st Journey'),
+            "Target Upload Date": row.get('target_date_upload', 'N/A'), "Ministry/Dept": row['ministry_dept'], 
+            "Handling Branch": row['assigned_wing'], "Current Station Status": status, "Latest Remarks Log": row['remarks']
         })
     st.table(display_data)
 else:
