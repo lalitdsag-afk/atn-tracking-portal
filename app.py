@@ -213,9 +213,8 @@ if user_role == "DG (Director General)":
     else:
         st.info("No data available.")
 
-# --- 1. F&A CELL (TRACKING NODAL) ROLE (UPGRADED THREE-TAB DECK) ---
+# --- 1. F&A CELL (TRACKING NODAL) ROLE ---
 if user_role == "F&A Cell (Nodal)":
-    # FIXED: Restructured F&A screen to incorporate a standalone queue tab for items received back from wings
     tab_upload, tab_received, tab_edit = st.tabs([
         "📋 Upload New ATN Record", 
         "📥 ATNs Received Back From Wings Queue",
@@ -258,7 +257,6 @@ if user_role == "F&A Cell (Nodal)":
                 st.success("Successfully registered and sent ATN to wing branch!")
                 st.rerun()
 
-    # FIXED: Standalone Tab 2 logic explicitly trapping items sent by operational units awaiting processing
     with tab_received:
         st.subheader("⚖️ Verification & Scrutiny Queue")
         fa_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_to_fa=not.is.null&date_sent_to_go=is.null&is_closed=eq.0", headers=HEADERS).json()
@@ -304,7 +302,8 @@ if user_role == "F&A Cell (Nodal)":
                     e_wing = st.selectbox("Assigned Wing", WING_NAMES, index=WING_NAMES.index(target_item['assigned_wing']) if target_item['assigned_wing'] in WING_NAMES else 0)
                     e_pac = st.selectbox("PAC/Non-PAC", PAC_OPTIONS, index=PAC_OPTIONS.index(target_item.get('pac_status', 'Non PAC')) if target_item.get('pac_status') in PAC_OPTIONS else 0)
                 with ec3:
-                    e_journey = st.selectbox("Journey", JOURWAY_OPTIONS, index=JOURNEY_OPTIONS.index(target_item.get('journey_status', '1st Journey')) if target_item.get('journey_status') in JOURNEY_OPTIONS else 0) if 'JOURWAY_OPTIONS' not in globals() else st.selectbox("Journey", JOURNEY_OPTIONS, index=JOURNEY_OPTIONS.index(target_item.get('journey_status', '1st Journey')) if target_item.get('journey_status') in JOURNEY_OPTIONS else 0)
+                    # FIXED: Cleaned up the redundant layout conditional and fixed the spelling typo ('JOURWAY_OPTIONS')
+                    e_journey = st.selectbox("Journey", JOURNEY_OPTIONS, index=JOURNEY_OPTIONS.index(target_item.get('journey_status', '1st Journey')) if target_item.get('journey_status') in JOURNEY_OPTIONS else 0)
                     
                     def parse_dt(dt_str):
                         try: return datetime.strptime(dt_str, "%Y-%m-%d").date()
