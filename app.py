@@ -131,42 +131,106 @@ if user_role == "DG (Director General)":
     with f_col2:
         filter_wing = st.selectbox("Filter by Handling Wing", ["All"] + WING_NAMES)
 
-# --- 1. F&A CELL (NODAL) ROLE ---
+# --- 1. F&A CELL (TRACKING NODAL) ROLE ---
 if user_role == "F&A Cell (Nodal)":
-    st.header("📋 Upload New Audit Action Taken Note (ATN)")
-    with st.form("atn_upload_form", clear_on_submit=True):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            year = st.selectbox("Year", YEARS_POOL)
-            report_no = st.text_input("Report No.", placeholder="e.g., 05 of 2026")
-            para_no = st.text_input("Para Number", placeholder="e.g., Para 4.1")
-        with col2:
-            ministry = st.selectbox("Ministry / Department", MINISTRIES)
-            wing = st.selectbox("Assign to Wing/Branch", WING_NAMES)
-            pac_status = st.selectbox("PAC/Non-PAC", PAC_OPTIONS)
-        with col3:
-            journey_status = st.selectbox("Journey", JOURNEY_OPTIONS)
-            t_wing = st.date_input("Target Date for Wing Submission")
-            t_fa = st.date_input("Target Date for F&A Verification")
+    # Tab layout to separate entry from modifications
+    tab_upload, tab_edit = st.tabs(["📋 Upload New ATN Record", "✏️ Edit Existing ATN Records"])
+    
+    with tab_upload:
+        st.subheader("Register a New Audit Paragraph")
+        with st.form("atn_upload_form", clear_on_submit=True):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                year = st.selectbox("Year", YEARS_POOL)
+                report_no = st.text_input("Report No.", placeholder="e.g., 05 of 2026")
+                para_no = st.text_input("Para Number", placeholder="e.g., Para 4.1")
+            with col2:
+                ministry = st.selectbox("Ministry / Department", MINISTRIES)
+                wing = st.selectbox("Assign to Wing/Branch", WING_NAMES)
+                pac_status = st.selectbox("PAC/Non-PAC", PAC_OPTIONS)
+            with col3:
+                journey_status = st.selectbox("Journey", JOURNEY_OPTIONS)
+                t_wing = st.date_input("Target Date for Wing Submission")
+                t_fa = st.date_input("Target Date for F&A Verification")
+                
+            col_extra1, col_extra2 = st.columns(2)
+            with col_extra1:
+                t_upload = st.date_input("Target Date for Uploading on APMS")
+            with col_extra2:
+                nodal_remark = st.text_input("Initial Entry Remarks / Special Instructions")
+                
+            subject = st.text_area("Subject / Audit Paragraph Description")
             
-        col_extra1, col_extra2 = st.columns(2)
-        with col_extra1:
-            t_upload = st.date_input("Target Date for Uploading on APMS")
-        with col_extra2:
-            nodal_remark = st.text_input("Initial Entry Remarks / Special Instructions")
-            
-        subject = st.text_area("Subject / Audit Paragraph Description")
+            if st.form_submit_button("🚀 Upload & Dispatch to Wing/Branch") and year and report_no and subject:
+                formatted_remark = append_remark("", "F&A Cell (Nodal Entry)", nodal_remark) if nodal_remark.strip() else ""
+                payload = {
+                    "year": year, "report_no": report_no, "chapter_number": para_no, "ministry_dept": ministry,
+                    "subject": subject, "assigned_wing": wing, "target_date_wing": str(t_wing), "target_date_fa": str(t_fa), 
+                    "remarks": formatted_remark, "pac_status": pac_status, "journey_status": journey_status, "target_date_upload": str(t_upload)
+                }
+                requests.post(f"{SUPABASE_URL}/rest/v1/atns", headers=HEADERS, json=payload)
+                st.success("Successfully registered and sent ATN to wing branch!")
+                st.rerun()
+
+    with tab_edit:
+        st.subheader("Modify Live Pipeline Entries")
+        active_items = fetch_all_active()
         
-        if st.form_submit_button("🚀 Upload & Dispatch to Wing/Branch") and year and report_no and subject:
-            formatted_remark = append_remark("", "F&A Cell (Nodal Entry)", nodal_remark) if nodal_remark.strip() else ""
-            payload = {
-                "year": year, "report_no": report_no, "chapter_number": para_no, "ministry_dept": ministry,
-                "subject": subject, "assigned_wing": wing, "target_date_wing": str(t_wing), "target_date_fa": str(t_fa), 
-                "remarks": formatted_remark, "pac_status": pac_status, "journey_status": journey_status, "target_date_upload": str(t_upload)
-            }
-            requests.post(f"{SUPABASE_URL}/rest/v1/atns", headers=HEADERS, json=payload)
-            st.success("Successfully registered and sent ATN to wing branch!")
-            st.rerun()
+        if not active_items:
+            st.info("No active records available to edit.")
+        else:
+            # Display dropdown to choose which record needs correction
+            item_options = {f"ID {x['id']} | Rep: {x['report_no']} | Para: {x['chapter_number']} | Wing: {x['assigned_wing']}": x for x in active_items}
+            selected_label = st.selectbox("Select ATN Entry to Correct:", list(item_options.keys()))
+            target_item = item_options[selected_label]
+            
+            # Form prepopulated with current information from Supabase
+            with st.form("atn_edit_form"):
+                ec1, ec2, ec3 = st.columns(3)
+                with ec1:
+                    e_year = st.selectbox("Year", YEARS_POOL, index=YEARS_POOL.index(target_item['year']) if target_item['year'] in YEARS_POOL else 0)
+                    e_report = st.text_input("Report No.", value=target_item['report_no'])
+                    e_para = st.text_input("Para Number", value=target_item['chapter_number'])
+                with ec2:
+                    e_ministry = st.selectbox("Ministry / Department", MINISTRIES, index=MINISTRIES.index(target_item['ministry_dept']) if target_item['ministry_dept'] in MINISTRIES else 0)
+                    e_wing = st.selectbox("Assigned Wing", WING_NAMES, index=WING_NAMES.index(target_item['assigned_wing']) if target_item['assigned_wing'] in WING_NAMES else 0)
+                    e_pac = st.selectbox("PAC/Non-PAC", PAC_OPTIONS, index=PAC_OPTIONS.index(target_item.get('pac_status', 'Non PAC')) if target_item.get('pac_status') in PAC_OPTIONS else 0)
+                with ec3:
+                    e_journey = st.selectbox("Journey", JOURNEY_OPTIONS, index=JOURNEY_OPTIONS.index(target_item.get('journey_status', '1st Journey')) if target_item.get('journey_status') in JOURNEY_OPTIONS else 0)
+                    
+                    # Date formatting handling
+                    def parse_dt(dt_str):
+                        try: return datetime.strptime(dt_str, "%Y-%m-%d").date()
+                        except: return datetime.today().date()
+                        
+                    e_t_wing = st.date_input("Target Date for Wings", value=parse_dt(target_item['target_date_wing']))
+                    e_t_fa = st.date_input("Target Date for F&A", value=parse_dt(target_item['target_date_fa']))
+            
+                ec_extra1, ec_extra2 = st.columns(2)
+                with ec_extra1:
+                    e_t_upload = st.date_input("Target Date for Uploading on APMS", value=parse_dt(target_item.get('target_date_upload')))
+                with ec_extra2:
+                    correction_reason = st.text_input("Reason for Modification (Appends to Log history)")
+
+                e_subject = st.text_area("Subject Description", value=target_item['subject'])
+                
+                if st.form_submit_button("💾 Save & Overwrite Cloud Record"):
+                    # Add trace log entry
+                    log_text = correction_reason.strip() if correction_reason.strip() else "Record details modified by Nodal Officer."
+                    updated_remarks = append_remark(target_item['remarks'], "F&A Cell (Data Correction)", log_text)
+                    
+                    update_payload = {
+                        "year": e_year, "report_no": e_report, "chapter_number": e_para, "ministry_dept": e_ministry,
+                        "assigned_wing": e_wing, "pac_status": e_pac, "journey_status": e_journey,
+                        "target_date_wing": str(e_t_wing), "target_date_fa": str(e_t_fa), "target_date_upload": str(e_t_upload),
+                        "subject": e_subject, "remarks": updated_remarks
+                    }
+                    
+                    # PATCH request to rewrite specified ID row
+                    patch_url = f"{SUPABASE_URL}/rest/v1/atns?id=eq.{target_item['id']}"
+                    requests.patch(patch_url, headers=HEADERS, json=update_payload)
+                    st.success("Cloud record updated successfully!")
+                    st.rerun()
 
     st.markdown("---")
     st.header("📥 F&A Verification & Scrutiny Queue")
@@ -175,7 +239,7 @@ if user_role == "F&A Cell (Nodal)":
         for item in fa_items:
             with st.expander(f"🟡 Reviewing: Report {item['report_no']} [{item['ministry_dept']}]", expanded=True):
                 st.write(f"**Subject:** {item['subject']}")
-                st.caption(f"🛡️ **Type:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Journey:** {item.get('journey_status', '1st Journey')} | 2014📅 **Target Upload Date on APMS:** {item.get('target_date_upload', 'N/A')}")
+                st.caption(f"🛡️ **Type:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Journey:** {item.get('journey_status', '1st Journey')} | 📅 **Target Upload Date on APMS:** {item.get('target_date_upload', 'N/A')}")
                 if item['remarks']: 
                     st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"fa_hist_{item['id']}")
                 sent_date = st.date_input("Select Date Forwarded to GO", key=f"fa_date_{item['id']}")
