@@ -215,9 +215,12 @@ if user_role == "DG (Director General)":
 
 # --- 1. F&A CELL (TRACKING NODAL) ROLE ---
 if user_role == "F&A Cell (Nodal)":
-    tab_upload, tab_received, tab_edit = st.tabs([
+    # UPDATED: Split the system to house an independent 'Uploaded' closure sandbox
+    tab_upload, tab_received, tab_external, tab_closeout, tab_edit = st.tabs([
         "📋 Upload New ATN Record", 
         "📥 ATNs Received Back From Wings Queue",
+        "🌐 Active External Trackers",
+        "✅ Uploaded (Archive)",
         "✏️ Edit Existing ATN Records"
     ])
     
@@ -280,6 +283,53 @@ if user_role == "F&A Cell (Nodal)":
         else:
             st.info("🎉 Clear queue! No records currently forwarded back from wings awaiting F&A processing.")
 
+    # UPDATED: Handles Transit Updates without closure tools mixed in
+    with tab_external:
+        st.subheader("🌐 Active External Trackers (Outward Monitoring)")
+        fa_ext_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_external=not.is.null&is_closed=eq.0", headers=HEADERS).json()
+        if fa_ext_items and isinstance(fa_ext_items, list):
+            for item in fa_ext_items:
+                ext_header = f"📌 Outward Tracker ➔ Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} | Dept: {item.get('ministry_dept', 'N/A')} ➔ Handed to: {item['external_destination']}"
+                with st.expander(ext_header, expanded=False):
+                    if item['remarks']: 
+                        st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"fa_ext_hist_{item['id']}")
+                    
+                    col_up1, col_up2 = st.columns([2, 2])
+                    with col_up1:
+                        new_dest = st.selectbox("Switch Destination Status To:", EXTERNAL_DESTINATIONS, index=EXTERNAL_DESTINATIONS.index(item['external_destination']), key=f"fa_change_dest_val_{item['id']}")
+                        status_remark = st.text_input("Status Transition Note", key=f"fa_status_note_{item['id']}")
+                    with col_up2:
+                        st.write(" ")
+                        st.write(" ")
+                        if st.button(f"Update Status to {new_dest}", key=f"fa_update_status_btn_{item['id']}"):
+                            transition_msg = status_remark if status_remark.strip() else f"Status manually redirected to {new_dest}."
+                            updated_remarks = append_remark(item['remarks'], "F&A Cell (Status Re-route)", transition_msg)
+                            requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"external_destination": new_dest, "remarks": updated_remarks})
+                            st.rerun()
+        else:
+            st.info("No external records currently out with tracking stations.")
+
+    # UPDATED: Independent Closure Deck for F&A Cell to archive to APMS
+    with tab_closeout:
+        st.subheader("✅ Uploaded (Paragraph Final Closure & Archiving)")
+        fa_close_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_external=not.is.null&is_closed=eq.0", headers=HEADERS).json()
+        if fa_close_items and isinstance(fa_close_items, list):
+            for item in fa_close_items:
+                close_header = f"🏁 Ready for Closure ➔ Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} | Dept: {item.get('ministry_dept', 'N/A')} | Location: {item['external_destination']}"
+                with st.expander(close_header, expanded=False):
+                    st.write(f"**Subject:** {item['subject']}")
+                    if item['remarks']:
+                        st.text_area("📜 Full Audit Trail History", value=item['remarks'], disabled=True, key=f"fa_close_view_{item['id']}")
+                    
+                    final_remark = st.text_input("Add Final Uploading / APMS Closure Note", key=f"fa_close_rem_{item['id']}")
+                    if st.button("🔒 Mark as Uploaded & Archive Record", key=f"fa_close_btn_{item['id']}"):
+                        updated_remarks = append_remark(item['remarks'], "F&A Cell (Final Closure)", final_remark) if final_remark.strip() else item['remarks']
+                        requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"is_closed": 1, "remarks": updated_remarks})
+                        st.success("File permanently archived under Closed status!")
+                        st.rerun()
+        else:
+            st.info("No external trackers currently available for final closure.")
+
     with tab_edit:
         st.subheader("Modify Live Pipeline Entries")
         active_items = fetch_all_active()
@@ -302,7 +352,6 @@ if user_role == "F&A Cell (Nodal)":
                     e_wing = st.selectbox("Assigned Wing", WING_NAMES, index=WING_NAMES.index(target_item['assigned_wing']) if target_item['assigned_wing'] in WING_NAMES else 0)
                     e_pac = st.selectbox("PAC/Non-PAC", PAC_OPTIONS, index=PAC_OPTIONS.index(target_item.get('pac_status', 'Non PAC')) if target_item.get('pac_status') in PAC_OPTIONS else 0)
                 with ec3:
-                    # FIXED: Cleaned up the redundant layout conditional and fixed the spelling typo ('JOURWAY_OPTIONS')
                     e_journey = st.selectbox("Journey", JOURNEY_OPTIONS, index=JOURNEY_OPTIONS.index(target_item.get('journey_status', '1st Journey')) if target_item.get('journey_status') in JOURNEY_OPTIONS else 0)
                     
                     def parse_dt(dt_str):
