@@ -442,9 +442,11 @@ if user_role == "F&A Cell (Nodal)":
         fa_ext_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_external=not.is.null&is_closed=eq.0", headers={**HEADERS, "Content-Type": "application/json"}).json()
         if fa_ext_items and isinstance(fa_ext_items, list):
             for item in fa_ext_items:
-                ext_header = f"📌 Outward Tracker ➔ Para No: {item.get('chapter_number', 'N/A')} | Handed to: {item['external_destination']}"
+                # UPDATED ROW DISPLAY LAYOUT FOR THE F&A NODAL EXTERNAL TRACKER EXPANDER HEADER
+                ext_header = f"📌 Para No: {item.get('chapter_number', 'N/A')} | Rep No: {item.get('report_no', 'N/A')} | Sub: {item.get('subject', 'N/A')[:45]}... < Dept: {item.get('ministry_dept', 'N/A')}"
                 with st.expander(ext_header, expanded=False):
                     
+                    st.write(f"**Full Context Subject Description:** {item['subject']}")
                     final_w_bytes = download_storage_file(f"wing_upload_{item['id']}.docx")
                     if final_w_bytes:
                         st.download_button("📥 Download Final Wing Document (.docx)", data=final_w_bytes, file_name=f"Final_Wing_Para_{item['chapter_number']}.docx", key=f"dl_ext_fa_{item['id']}")
@@ -614,7 +616,6 @@ if user_role == "Group Officer (GO)":
         ext_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_external=not.is.null&is_closed=eq.0", headers={**HEADERS, "Content-Type": "application/json"}).json()
         if ext_items and isinstance(ext_items, list):
             for item in ext_items:
-                # UPDATED ROW DISPLAY LAYOUT FOR THE GROUP OFFICER SCREEN
                 ext_header = f"📌 Para No: {item.get('chapter_number', 'N/A')} | Rep No: {item.get('report_no', 'N/A')} | Sub: {item.get('subject', 'N/A')[:45]}... < Dept: {item.get('ministry_dept', 'N/A')}"
                 with st.expander(ext_header, expanded=False):
                     
