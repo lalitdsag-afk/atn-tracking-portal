@@ -2,6 +2,9 @@ import streamlit as st
 import requests
 from datetime import datetime
 import os
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 # --- SECURE CLOUD CONFIGURATION ---
 try:
@@ -38,6 +41,48 @@ def delete_storage_file(file_name):
     url = f"{SUPABASE_URL}/storage/v1/object/{BUCKET_NAME}/{file_name}"
     requests.delete(url, headers=HEADERS)
 
+# --- AUTOMATED EMAIL ROUTING ENGINE ---
+def send_atn_email(recipient_email, atn_para, subject_title, target_wing):
+    """Sends a secure email alert when an ATN is assigned to a Wing."""
+    try:
+        sender_email = st.secrets["email"]["sender_address"]
+        sender_password = st.secrets["email"]["app_password"]
+    except KeyError:
+        return False
+        
+    msg = MIMEMultipart()
+    msg['From'] = sender_email
+    msg['To'] = recipient_email
+    msg['Subject'] = f"📍 Action Required: New ATN Assigned - {atn_para}"
+    
+    body = f"""
+    Greetings,
+    
+    This is an automated alert from the ATN Tracking Portal.
+    
+    A new Audit Paragraph record has been registered and routed to your branch:
+    - Para Reference: {atn_para}
+    - Handling Wing: {target_wing}
+    - Subject/Title: {subject_title}
+    
+    Please log in to your dashboard queue to download the attached Word (.docx) workspace file and submit your compliance return.
+    
+    Regards,
+    F&A Nodal Cell Administrator
+    """
+    msg.attach(MIMEText(body, 'plain'))
+    
+    try:
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(sender_email, sender_password)
+        server.send_message(msg)
+        server.quit()
+        return True
+    except Exception as e:
+        print(f"Email routing error log: {e}")
+        return False
+
 # --- DATABASE ENGINE FUNCTIONS ---
 def fetch_all_active(ministry="All", wing="All"):
     url = f"{SUPABASE_URL}/rest/v1/atns?is_closed=eq.0"
@@ -57,8 +102,8 @@ def get_counts():
         "wings": len([x for x in res if not x.get('date_sent_to_fa')]),
         "fa": len([x for x in res if x.get('date_sent_to_fa') and not x.get('date_sent_to_go')]),
         "go": len([x for x in res if x.get('date_sent_to_go') and not x.get('date_sent_external')]),
-        "fc": len([x for x in res if x.get('date_sent_external') and x.get('external_destination') == "F&C"]),
-        "hq": len([x for x in res if x.get('date_sent_external') and x.get('external_destination') == "HQ"])
+        "fc": len([x for x in res if x.get('date_sent_external') and row.get('external_destination') == "F&C" if 'row' in globals() else True]),
+        "hq": len([x for x in res if x.get('date_sent_external') and row.get('external_destination') == "HQ" if 'row' in globals() else True])
     }
 
 def authenticate_user(uid, pwd):
@@ -69,6 +114,20 @@ def authenticate_user(uid, pwd):
 def update_password(uid, new_pwd):
     url = f"{SUPABASE_URL}/rest/v1/users?username=eq.{uid}"
     requests.patch(url, headers={**HEADERS, "Content-Type": "application/json"}, json={"password": new_pwd})
+
+def update_user_profile_comms(uid, new_email, new_mobile):
+    """Overwrites an individual user's contact information parameters in Supabase"""
+    url = f"{SUPABASE_URL}/rest/v1/users?username=eq.{uid}"
+    payload = {"email": new_email, "mobile": new_mobile}
+    requests.patch(url, headers={**HEADERS, "Content-Type": "application/json"}, json=payload)
+
+def fetch_wing_comms_by_role(role_name):
+    """Queries user table to fetch profile communication details registered by specific operational wings"""
+    url = f"{SUPABASE_URL}/rest/v1/users?role=eq.{role_name}"
+    res = requests.get(url, headers={**HEADERS, "Content-Type": "application/json"}).json()
+    if res and isinstance(res, list):
+        return {"email": res[0].get('email'), "mobile": res[0].get('mobile')}
+    return {"email": None, "mobile": None}
 
 def append_remark(old_remarks, role, new_text):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -116,7 +175,12 @@ if not st.session_state["authenticated"]:
         account = authenticate_user(input_uid, input_pwd)
         if account:
             st.session_state["authenticated"] = True
-            st.session_state["user_info"] = {"username": account["username"], "role": account["role"]}
+            st.session_state["user_info"] = {
+                "username": account["username"], 
+                "role": account["role"],
+                "email": account.get("email", ""),
+                "mobile": account.get("mobile", "")
+            }
             st.rerun()
         else:
             st.sidebar.error("❌ Invalid ID or Password.")
@@ -124,9 +188,25 @@ if not st.session_state["authenticated"]:
 else:
     current_user = st.session_state["user_info"]["username"]
     user_role = st.session_state["user_info"]["role"]
-    st.sidebar.info(f"User ID: **{current_user}**\n\nRole: **{user_role}**")
+    user_current_email = st.session_state["user_info"].get("email", "Not Set")
+    user_current_mobile = st.session_state["user_info"].get("mobile", "Not Set")
     
-    with st.sidebar.expander("⚙️ Account Settings (Change Password)"):
+    st.sidebar.info(f"User ID: **{current_user}**\nRole: **{user_role}**\nEmail: `{user_current_email}`\nMobile: `{user_current_mobile}`")
+    
+    with st.sidebar.expander("⚙️ Account Settings & Alert Profile"):
+        st.markdown("##### 📥 Communication Routing Parameters")
+        fresh_email_input = st.text_input("Nodal Alert Email Address", value=st.session_state["user_info"].get("email", ""))
+        fresh_mobile_input = st.text_input("Nodal Mobile Number (e.g., +91...)", value=st.session_state["user_info"].get("mobile", ""))
+        
+        if st.button("Update Profile Parameters"):
+            update_user_profile_comms(current_user, fresh_email_input.strip(), fresh_mobile_input.strip())
+            st.session_state["user_info"]["email"] = fresh_email_input.strip()
+            st.session_state["user_info"]["mobile"] = fresh_mobile_input.strip()
+            st.success("Communication channels updated successfully!")
+            st.rerun()
+                
+        st.markdown("---")
+        st.markdown("##### 🔒 Security Parameter Modification")
         new_pwd = st.text_input("New Password", type="password")
         confirm_pwd = st.text_input("Confirm New Password", type="password")
         if st.button("Update Password"):
@@ -266,8 +346,6 @@ if user_role == "F&A Cell (Nodal)":
                 nodal_remark = st.text_input("Initial Entry Remarks / Special Instructions")
                 
             subject = st.text_area("Subject / Audit Paragraph Description")
-            
-            # FILE UPLOADER ADDED: For initial upload stage
             uploaded_word_doc = st.file_uploader("Attach Received ATN Document (.docx)", type=["docx"])
             
             if st.form_submit_button("🚀 Upload & Dispatch to Wing/Branch") and year and report_no and subject:
@@ -279,12 +357,17 @@ if user_role == "F&A Cell (Nodal)":
                 }
                 creation_res = requests.post(f"{SUPABASE_URL}/rest/v1/atns", headers={**HEADERS, "Content-Type": "application/json"}, json=payload).json()
                 
-                # If a file was uploaded, store it temporarily using the created ID
-                if creation_res and isinstance(creation_res, list) and uploaded_word_doc:
+                if creation_res and isinstance(creation_res, list):
                     created_id = creation_res[0]['id']
-                    upload_storage_file(uploaded_word_doc.getvalue(), f"fa_upload_{created_id}.docx")
+                    if uploaded_word_doc:
+                        upload_storage_file(uploaded_word_doc.getvalue(), f"fa_upload_{created_id}.docx")
+                    
+                    # DYNAMIC EMAIL ROUTER: Fetches user-registered communication properties
+                    wing_comms = fetch_wing_comms_by_role(wing)
+                    if wing_comms["email"]:
+                        send_atn_email(wing_comms["email"], para_no, subject, wing)
                 
-                st.success("Successfully registered and sent ATN with attached file to wing branch!")
+                st.success("Successfully registered, sent file to cloud storage, and fired automated notification to user-registered email destination!")
                 st.rerun()
 
     with tab_received:
@@ -296,7 +379,6 @@ if user_role == "F&A Cell (Nodal)":
                 with st.expander(fa_header, expanded=True):
                     st.write(f"**Subject:** {item['subject']}")
                     
-                    # FILE DOWNLOAD ADDED: Download what the wing uploaded
                     wing_doc_bytes = download_storage_file(f"wing_upload_{item['id']}.docx")
                     if wing_doc_bytes:
                         st.download_button("📥 Download Wing's Reply Document (.docx)", data=wing_doc_bytes, file_name=f"Wing_Reply_Para_{item['chapter_number']}.docx", key=f"dl_wing_{item['id']}")
@@ -325,7 +407,6 @@ if user_role == "F&A Cell (Nodal)":
                 ext_header = f"📌 Outward Tracker ➔ Para No: {item.get('chapter_number', 'N/A')} | Handed to: {item['external_destination']}"
                 with st.expander(ext_header, expanded=False):
                     
-                    # FILE DOWNLOAD ADDED: In case F&A wants to download the wing file from the external queue
                     final_w_bytes = download_storage_file(f"wing_upload_{item['id']}.docx")
                     if final_w_bytes:
                         st.download_button("📥 Download Final Wing Document (.docx)", data=final_w_bytes, file_name=f"Final_Wing_Para_{item['chapter_number']}.docx", key=f"dl_ext_fa_{item['id']}")
@@ -349,10 +430,8 @@ if user_role == "F&A Cell (Nodal)":
                         updated_remarks = append_remark(item['remarks'], "F&A Cell (Final Closure)", final_remark) if final_remark.strip() else item['remarks']
                         requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers={**HEADERS, "Content-Type": "application/json"}, json={"is_closed": 1, "remarks": updated_remarks})
                         
-                        # STORAGE CLEANUP DISCARD: Delete Wing's temporary file upon final closure
                         delete_storage_file(f"wing_upload_{item['id']}.docx")
-                        
-                        st.success("File permanently archived under Closed status! Discarded temporary file infrastructure.")
+                        st.success("File permanently archived under Closed status!")
                         st.rerun()
         else:
             st.info("No external records currently out with tracking stations.")
@@ -422,7 +501,6 @@ if user_role in WING_NAMES:
             with st.expander(wing_header, expanded=True):
                 st.write(f"**Subject:** {item['subject']}")
                 
-                # FILE DOWNLOAD ADDED: Wings can pull down the initial file uploaded by F&A Cell
                 fa_doc_bytes = download_storage_file(f"fa_upload_{item['id']}.docx")
                 if fa_doc_bytes:
                     st.download_button("📥 Download Received ATN Document (.docx)", data=fa_doc_bytes, file_name=f"Received_ATN_Para_{item['chapter_number']}.docx", key=f"dl_fa_file_{item['id']}")
@@ -434,16 +512,13 @@ if user_role in WING_NAMES:
                     st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"wing_hist_{item['id']}")
                 
                 st.markdown("##### 🚀 Submit Action Return")
-                # FILE UPLOADER ADDED: Wings can upload their updated document here
                 wing_uploaded_doc = st.file_uploader("Upload Updated ATN Return File (.docx)", type=["docx"], key=f"upload_wing_doc_{item['id']}")
                 sent_date = st.date_input("Select Date Sent to F&A Cell", key=f"wing_date_{item['id']}")
                 wing_remark = st.text_input("Add Wing Action Remarks", key=f"wing_rem_{item['id']}")
                 
                 if st.button("Forward back to F&A Cell", key=f"wing_btn_{item['id']}"):
                     if wing_uploaded_doc:
-                        # Save the wing's file
                         upload_storage_file(wing_uploaded_doc.getvalue(), f"wing_upload_{item['id']}.docx")
-                        # STORAGE CLEANUP DISCARD: Delete F&A's initial temporary file now that it's sent back
                         delete_storage_file(f"fa_upload_{item['id']}.docx")
                         
                     updated_remarks = append_remark(item['remarks'], f"{user_role} Wing", wing_remark) if wing_remark.strip() else item['remarks']
@@ -470,7 +545,6 @@ if user_role == "Group Officer (GO)":
                 with st.expander(go_header, expanded=True):
                     st.write(f"**Subject Description:** {item['subject']}")
                     
-                    # FILE DOWNLOAD ADDED: GO can download the wing file for assessment
                     go_view_bytes = download_storage_file(f"wing_upload_{item['id']}.docx")
                     if go_view_bytes:
                         st.download_button("📥 Download Wing's Document (.docx)", data=go_view_bytes, file_name=f"GO_Review_Para_{item['chapter_number']}.docx", key=f"dl_go_view_{item['id']}")
@@ -505,7 +579,6 @@ if user_role == "Group Officer (GO)":
                 ext_header = f"📌 Outward Tracker ➔ Para No: {item.get('chapter_number', 'N/A')} ➔ Handed to: {item['external_destination']}"
                 with st.expander(ext_header, expanded=False):
                     
-                    # FILE DOWNLOAD ADDED: GO can download the file from the outward queue
                     final_w_bytes_go = download_storage_file(f"wing_upload_{item['id']}.docx")
                     if final_w_bytes_go:
                         st.download_button("📥 Download Document (.docx)", data=final_w_bytes_go, file_name=f"GO_External_Para_{item['chapter_number']}.docx", key=f"dl_ext_go_{item['id']}")
@@ -529,10 +602,8 @@ if user_role == "Group Officer (GO)":
                         updated_remarks = append_remark(item['remarks'], "Group Officer (Closure)", final_remark) if final_remark.strip() else item['remarks']
                         requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers={**HEADERS, "Content-Type": "application/json"}, json={"is_closed": 1, "remarks": updated_remarks})
                         
-                        # STORAGE CLEANUP DISCARD: Delete Wing's temporary file upon final closure
                         delete_storage_file(f"wing_upload_{item['id']}.docx")
-                        
-                        st.success("File permanently archived under Closed status! Discarded temporary file infrastructure.")
+                        st.success("File permanently archived under Closed status!")
                         st.rerun()
 
     with go_tab_edit:
