@@ -111,7 +111,7 @@ else:
 filter_ministry = "All"
 filter_wing = "All"
 
-# --- 0. DG DASHBOARD ROLE ---
+# --- 0. DG DASHBOARD ROLE (CUSTOM TABLE STRUCTURING) ---
 if user_role == "DG (Director General)":
     st.header("🦅 Director General (DG) Executive Overview")
     counts = get_counts()
@@ -130,6 +130,48 @@ if user_role == "DG (Director General)":
         filter_ministry = st.selectbox("Filter by Ministry/Dept", ["All"] + MINISTRIES)
     with f_col2:
         filter_wing = st.selectbox("Filter by Handling Wing", ["All"] + WING_NAMES)
+        
+    st.markdown("---")
+    st.subheader("📊 Live Executive Pipeline Grid")
+    
+    all_active = fetch_all_active(ministry=filter_ministry, wing=filter_wing)
+    if all_active and isinstance(all_active, list):
+        dg_display_data = []
+        for row in all_active:
+            status = f"🌐 With {row['external_destination']}" if row.get('date_sent_external') else ("👑 With GO" if row.get('date_sent_to_go') else ("💼 With F&A Cell" if row.get('date_sent_to_fa') else "⏳ With Wing"))
+            
+            # Extract explicit tracking dates based on conditional values
+            date_wing_fwd = row.get('date_sent_to_fa') if row.get('date_sent_to_fa') else "Pending"
+            
+            date_sent_fc = "N/A"
+            date_sent_hq = "N/A"
+            if row.get('date_sent_external'):
+                if row.get('external_destination') == "F&C":
+                    date_sent_fc = row.get('date_sent_external')
+                elif row.get('external_destination') == "HQ":
+                    date_sent_hq = row.get('date_sent_external')
+            
+            # FIXED: Removed remarks completely, added specific requested date tracking columns
+            dg_display_data.append({
+                "Year": row['year'], 
+                "Report No": row['report_no'], 
+                "Ministry Dept": row['ministry_dept'],
+                "Para No": row['chapter_number'], 
+                "Subject": row['subject'],
+                "Target Date for Wings": row['target_date_wing'],
+                "Target Date for F&A": row['target_date_fa'],
+                "Target Date of Uploading on APMS": row.get('target_date_upload', 'N/A'),
+                "Journey": row.get('journey_status', '1st Journey'),
+                "PAC/Non-PAC": row.get('pac_status', 'Non PAC'),
+                "Handling Branch": row['assigned_wing'],
+                "Date Wing Forwarded to F&A": date_wing_fwd,
+                "Date Sent to F&C": date_sent_fc,
+                "Date Sent to HQ": date_sent_hq,
+                "Current Station Status": status
+            })
+        st.table(dg_display_data)
+    else:
+        st.info("The monitoring grid is currently empty. No active items match the search filters.")
 
 # --- 1. F&A CELL (TRACKING NODAL) ROLE ---
 if user_role == "F&A Cell (Nodal)":
@@ -357,31 +399,31 @@ if user_role == "Group Officer (GO)":
                     st.success("Metadata updates saved and updated in comments history logs!")
                     st.rerun()
 
-# --- 4. GLOBAL DASHBOARD (MASTER BOARD) ---
+# --- 4. GLOBAL DASHBOARD (MASTER BOARD FOR OTHER ROLES) ---
 if user_role != "DG (Director General)":
     st.markdown("---")
     st.header("📊 Live Active Pipeline (Master Board)")
 
-all_active = fetch_all_active(ministry=filter_ministry, wing=filter_wing)
-if all_active and isinstance(all_active, list):
-    display_data = []
-    for row in all_active:
-        status = f"🌐 With {row['external_destination']}" if row.get('date_sent_external') else ("👑 With GO" if row.get('date_sent_to_go') else ("💼 With F&A Cell" if row.get('date_sent_to_fa') else "⏳ With Wing"))
-        display_data.append({
-            "Year": row['year'], 
-            "Report No": row['report_no'], 
-            "Ministry Dept": row['ministry_dept'],
-            "Para No": row['chapter_number'], 
-            "Subject": row['subject'],
-            "Target Date for Wings": row['target_date_wing'],
-            "Target Date for F&A": row['target_date_fa'],
-            "Target Date of Uploading on APMS": row.get('target_date_upload', 'N/A'),
-            "Journey": row.get('journey_status', '1st Journey'),
-            "PAC/Non-PAC": row.get('pac_status', 'Non PAC'),
-            "Handling Branch": row['assigned_wing'], 
-            "Current Station Status": status, 
-            "Latest Remarks Log": row['remarks']
-        })
-    st.table(display_data)
-else:
-    st.info("The monitoring grid is currently empty. No active items match the search filters.")
+    all_active = fetch_all_active(ministry=filter_ministry, wing=filter_wing)
+    if all_active and isinstance(all_active, list):
+        display_data = []
+        for row in all_active:
+            status = f"🌐 With {row['external_destination']}" if row.get('date_sent_external') else ("👑 With GO" if row.get('date_sent_to_go') else ("💼 With F&A Cell" if row.get('date_sent_to_fa') else "⏳ With Wing"))
+            display_data.append({
+                "Year": row['year'], 
+                "Report No": row['report_no'], 
+                "Ministry Dept": row['ministry_dept'],
+                "Para No": row['chapter_number'], 
+                "Subject": row['subject'],
+                "Target Date for Wings": row['target_date_wing'],
+                "Target Date for F&A": row['target_date_fa'],
+                "Target Date of Uploading on APMS": row.get('target_date_upload', 'N/A'),
+                "Journey": row.get('journey_status', '1st Journey'),
+                "PAC/Non-PAC": row.get('pac_status', 'Non PAC'),
+                "Handling Branch": row['assigned_wing'], 
+                "Current Station Status": status, 
+                "Latest Remarks Log": row['remarks']
+            })
+        st.table(display_data)
+    else:
+        st.info("The monitoring grid is currently empty. No active items match the search filters.")
