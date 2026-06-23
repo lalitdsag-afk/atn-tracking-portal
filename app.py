@@ -137,7 +137,7 @@ if user_role == "F&A Cell (Nodal)":
             year = st.text_input("Year", placeholder="e.g., 2025-26")
             report_no = st.text_input("Report No.", placeholder="e.g., 05 of 2026")
         with col2:
-            chapter = st.text_input("Chapter Number", placeholder="e.g., Chapter IV")
+            para_no = st.text_input("Para Number", placeholder="e.g., Para 4.1")
             ministry = st.selectbox("Ministry / Department", MINISTRIES)
         with col3:
             wing = st.selectbox("Assign to Wing/Branch", WING_NAMES)
@@ -150,7 +150,7 @@ if user_role == "F&A Cell (Nodal)":
         if st.form_submit_button("🚀 Upload & Dispatch to Wing/Branch") and year and report_no and subject:
             formatted_remark = append_remark("", "F&A Cell (Nodal Entry)", nodal_remark) if nodal_remark.strip() else ""
             payload = {
-                "year": year, "report_no": report_no, "chapter_number": chapter, "ministry_dept": ministry,
+                "year": year, "report_no": report_no, "chapter_number": para_no, "ministry_dept": ministry,
                 "subject": subject, "assigned_wing": wing, "target_date_wing": str(t_wing), "target_date_fa": str(t_fa), "remarks": formatted_remark
             }
             requests.post(f"{SUPABASE_URL}/rest/v1/atns", headers=HEADERS, json=payload)
@@ -255,7 +255,7 @@ if all_active and isinstance(all_active, list):
     for row in all_active:
         status = f"🌐 With {row['external_destination']}" if row.get('date_sent_external') else ("👑 With GO" if row.get('date_sent_to_go') else ("💼 With F&A Cell" if row.get('date_sent_to_fa') else "⏳ With Wing"))
         display_data.append({
-            "Year": row['year'], "Report No": row['report_no'], "Chapter": row['chapter_number'], 
+            "Year": row['year'], "Report No": row['report_no'], "Para": row['chapter_number'], 
             "Ministry/Dept": row['ministry_dept'], "Handling Branch": row['assigned_wing'], 
             "Current Station Status": status, "Latest Remarks Log": row['remarks']
         })
