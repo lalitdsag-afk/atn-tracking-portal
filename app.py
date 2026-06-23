@@ -247,23 +247,22 @@ if user_role in WING_NAMES:
     else:
         st.info("🎉 Clear queue! No files currently assigned to your wing.")
 
-# --- 3. GROUP OFFICER (GO) ROLE (RECONFIGURED COMPACT TABBED INTERFACE) ---
+# --- 3. GROUP OFFICER (GO) ROLE ---
 if user_role == "Group Officer (GO)":
     st.header("👑 Group Officer Desk")
     
-    # Combined Operational Actions & External Trackers into Tab 1, leaving Correction isolated in Tab 2
     go_tab_action, go_tab_edit = st.tabs([
         "📥 Pending Actions & Trackers", 
         "✏️ Universal ATN Data Correction Deck"
     ])
     
-    # TAB 1: OPERATIONAL SIGN-OFFS AND EXTERNAL TRACKERS
+    # TAB 1: OPERATIONAL ACTIONS & OUTWARD TRACKERS
     with go_tab_action:
         st.subheader("Awaiting Initial Dispatch Signatures")
         go_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_to_go=not.is.null&date_sent_external=is.null&is_closed=eq.0", headers=HEADERS).json()
         if go_items and isinstance(go_items, list):
             for item in go_items:
-                go_header = f"🔵 Pending Dispatch ➔ Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} | Origin: {item.get('assigned_wing', 'N/A')}"
+                go_header = f"🔵 Pending Dispatch ➔ Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} | Dept: {item.get('ministry_dept', 'N/A')} | Origin: {item.get('assigned_wing', 'N/A')}"
                 with st.expander(go_header, expanded=True):
                     st.write(f"**Subject Description:** {item['subject']}")
                     st.caption(f"🛡️ **PAC/Non-PAC:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Journey:** {item.get('journey_status', '1st Journey')} | 📅 **Year:** {item.get('year')}")
@@ -295,7 +294,7 @@ if user_role == "Group Officer (GO)":
         ext_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_external=not.is.null&is_closed=eq.0", headers=HEADERS).json()
         if ext_items and isinstance(ext_items, list):
             for item in ext_items:
-                ext_header = f"📌 Outward Tracker ➔ Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} ➔ Handed to: {item['external_destination']}"
+                ext_header = f"📌 Outward Tracker ➔ Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} | Dept: {item.get('ministry_dept', 'N/A')} ➔ Handed to: {item['external_destination']}"
                 with st.expander(ext_header, expanded=False):
                     if item['remarks']: 
                         st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"ext_hist_{item['id']}")
@@ -327,7 +326,7 @@ if user_role == "Group Officer (GO)":
         if not all_active_items:
             st.info("No active pipeline files available to correct.")
         else:
-            go_edit_options = {f"Para: {x['chapter_number']} | Rep: {x['report_no']} | Wing: {x['assigned_wing']} (ID: {x['id']})": x for x in all_active_items}
+            go_edit_options = {f"Para: {x['chapter_number']} | Rep: {x['report_no']} | Dept: {x.get('ministry_dept', 'N/A')} | Wing: {x['assigned_wing']} (ID: {x['id']})": x for x in all_active_items}
             selected_edit_label = st.selectbox("Select Target File for Correction:", list(go_edit_options.keys()), key="go_universal_select")
             go_target_item = go_edit_options[selected_edit_label]
             
