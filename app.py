@@ -14,9 +14,29 @@ except (KeyError, FileNotFoundError):
 HEADERS = {
     "apikey": SUPABASE_KEY,
     "Authorization": f"Bearer {SUPABASE_KEY}",
-    "Content-Type": "application/json",
     "Prefer": "return=representation"
 }
+
+# --- TEMPORARY STORAGE MANAGEMENT ENGINE ---
+BUCKET_NAME = "atn-files"
+
+def upload_storage_file(file_bytes, file_name, content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"):
+    """Uploads a byte string file directly into the Supabase Storage Bucket"""
+    url = f"{SUPABASE_URL}/storage/v1/object/{BUCKET_NAME}/{file_name}"
+    upload_headers = {**HEADERS, "Content-Type": content_type}
+    response = requests.post(url, headers=upload_headers, data=file_bytes)
+    return response.status_code in [200, 201]
+
+def download_storage_file(file_name):
+    """Downloads a raw file from the storage bucket"""
+    url = f"{SUPABASE_URL}/storage/v1/object/{BUCKET_NAME}/{file_name}"
+    response = requests.get(url, headers=HEADERS)
+    return response.content if response.status_code == 200 else None
+
+def delete_storage_file(file_name):
+    """Discards a temporary file from the storage system cleanly"""
+    url = f"{SUPABASE_URL}/storage/v1/object/{BUCKET_NAME}/{file_name}"
+    requests.delete(url, headers=HEADERS)
 
 # --- DATABASE ENGINE FUNCTIONS ---
 def fetch_all_active(ministry="All", wing="All"):
@@ -25,11 +45,11 @@ def fetch_all_active(ministry="All", wing="All"):
         url += f"&ministry_dept=eq.{ministry}"
     if wing != "All":
         url += f"&assigned_wing=eq.{wing}"
-    response = requests.get(url, headers=HEADERS)
+    response = requests.get(url, headers={**HEADERS, "Content-Type": "application/json"})
     return response.json() if response.status_code == 200 else []
 
 def get_counts():
-    res = requests.get(f"{SUPABASE_URL}/rest/v1/atns?is_closed=eq.0", headers=HEADERS).json()
+    res = requests.get(f"{SUPABASE_URL}/rest/v1/atns?is_closed=eq.0", headers={**HEADERS, "Content-Type": "application/json"}).json()
     if not isinstance(res, list): 
         return {"total": 0, "wings": 0, "fa": 0, "go": 0, "fc": 0, "hq": 0}
     return {
@@ -43,12 +63,12 @@ def get_counts():
 
 def authenticate_user(uid, pwd):
     url = f"{SUPABASE_URL}/rest/v1/users?username=eq.{uid}&password=eq.{pwd}"
-    res = requests.get(url, headers=HEADERS).json()
+    res = requests.get(url, headers={**HEADERS, "Content-Type": "application/json"}).json()
     return res[0] if res else None
 
 def update_password(uid, new_pwd):
     url = f"{SUPABASE_URL}/rest/v1/users?username=eq.{uid}"
-    requests.patch(url, headers=HEADERS, json={"password": new_pwd})
+    requests.patch(url, headers={**HEADERS, "Content-Type": "application/json"}, json={"password": new_pwd})
 
 def append_remark(old_remarks, role, new_text):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -215,7 +235,6 @@ if user_role == "DG (Director General)":
 
 # --- 1. F&A CELL (TRACKING NODAL) ROLE ---
 if user_role == "F&A Cell (Nodal)":
-    # UPDATED: Consolidated into a clean 4-tab workspace with the tracking desk named "Uploaded"
     tab_upload, tab_received, tab_uploaded, tab_edit = st.tabs([
         "📋 Upload New ATN Record", 
         "📥 ATNs Received Back From Wings Queue",
@@ -248,6 +267,9 @@ if user_role == "F&A Cell (Nodal)":
                 
             subject = st.text_area("Subject / Audit Paragraph Description")
             
+            # FILE UPLOADER ADDED: For initial upload stage
+            uploaded_word_doc = st.file_uploader("Attach Received ATN Document (.docx)", type=["docx"])
+            
             if st.form_submit_button("🚀 Upload & Dispatch to Wing/Branch") and year and report_no and subject:
                 formatted_remark = append_remark("", "F&A Cell (Nodal Entry)", nodal_remark) if nodal_remark.strip() else ""
                 payload = {
@@ -255,19 +277,32 @@ if user_role == "F&A Cell (Nodal)":
                     "subject": subject, "assigned_wing": wing, "target_date_wing": str(t_wing), "target_date_fa": str(t_fa), 
                     "remarks": formatted_remark, "pac_status": pac_status, "journey_status": journey_status, "target_date_upload": str(t_upload)
                 }
-                requests.post(f"{SUPABASE_URL}/rest/v1/atns", headers=HEADERS, json=payload)
-                st.success("Successfully registered and sent ATN to wing branch!")
+                creation_res = requests.post(f"{SUPABASE_URL}/rest/v1/atns", headers={**HEADERS, "Content-Type": "application/json"}, json=payload).json()
+                
+                # If a file was uploaded, store it temporarily using the created ID
+                if creation_res and isinstance(creation_res, list) and uploaded_word_doc:
+                    created_id = creation_res[0]['id']
+                    upload_storage_file(uploaded_word_doc.getvalue(), f"fa_upload_{created_id}.docx")
+                
+                st.success("Successfully registered and sent ATN with attached file to wing branch!")
                 st.rerun()
 
     with tab_received:
         st.subheader("⚖️ Verification & Scrutiny Queue")
-        fa_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_to_fa=not.is.null&date_sent_to_go=is.null&is_closed=eq.0", headers=HEADERS).json()
+        fa_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_to_fa=not.is.null&date_sent_to_go=is.null&is_closed=eq.0", headers={**HEADERS, "Content-Type": "application/json"}).json()
         if fa_items and isinstance(fa_items, list):
             for item in fa_items:
-                fa_header = f"🟡 Received Back from {item.get('assigned_wing', 'Wing')} ➔ Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} | Dept: {item.get('ministry_dept', 'N/A')}"
+                fa_header = f"🟡 Received Back from {item.get('assigned_wing', 'Wing')} ➔ Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')}"
                 with st.expander(fa_header, expanded=True):
                     st.write(f"**Subject:** {item['subject']}")
-                    st.caption(f"🛡️ **Type:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Journey:** {item.get('journey_status', '1st Journey')} | 📅 **Target Upload Date on APMS:** {item.get('target_date_upload', 'N/A')}")
+                    
+                    # FILE DOWNLOAD ADDED: Download what the wing uploaded
+                    wing_doc_bytes = download_storage_file(f"wing_upload_{item['id']}.docx")
+                    if wing_doc_bytes:
+                        st.download_button("📥 Download Wing's Reply Document (.docx)", data=wing_doc_bytes, file_name=f"Wing_Reply_Para_{item['chapter_number']}.docx", key=f"dl_wing_{item['id']}")
+                    else:
+                        st.caption("ℹ️ No reply document attached by the wing.")
+                    
                     if item['remarks']: 
                         st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"fa_hist_{item['id']}")
                     
@@ -276,23 +311,25 @@ if user_role == "F&A Cell (Nodal)":
                     fa_remark = st.text_input("Add F&A Verification Scrutiny Remarks", key=f"fa_rem_{item['id']}")
                     if st.button("Forward to Group Officer (GO)", key=f"fa_btn_{item['id']}"):
                         updated_remarks = append_remark(item['remarks'], "F&A Cell (Scrutiny Check)", fa_remark) if fa_remark.strip() else item['remarks']
-                        requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"date_sent_to_go": str(sent_date), "remarks": updated_remarks})
-                        st.success("Forwarded to GO! File cleared from this tab.")
+                        requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers={**HEADERS, "Content-Type": "application/json"}, json={"date_sent_to_go": str(sent_date), "remarks": updated_remarks})
+                        st.success("Forwarded to GO!")
                         st.rerun()
         else:
             st.info("🎉 Clear queue! No records currently forwarded back from wings awaiting F&A processing.")
 
-    # UPDATED: Merged tracking capabilities here under the clean "Uploaded" tab layout
     with tab_uploaded:
         st.subheader("🌐 External Tracker Status & Record Archive")
-        fa_ext_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_external=not.is.null&is_closed=eq.0", headers=HEADERS).json()
+        fa_ext_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_external=not.is.null&is_closed=eq.0", headers={**HEADERS, "Content-Type": "application/json"}).json()
         if fa_ext_items and isinstance(fa_ext_items, list):
             for item in fa_ext_items:
-                ext_header = f"📌 Outward Tracker ➔ Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} | Dept: {item.get('ministry_dept', 'N/A')} ➔ Handed to: {item['external_destination']}"
+                ext_header = f"📌 Outward Tracker ➔ Para No: {item.get('chapter_number', 'N/A')} | Handed to: {item['external_destination']}"
                 with st.expander(ext_header, expanded=False):
-                    if item['remarks']: 
-                        st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"fa_ext_hist_{item['id']}")
                     
+                    # FILE DOWNLOAD ADDED: In case F&A wants to download the wing file from the external queue
+                    final_w_bytes = download_storage_file(f"wing_upload_{item['id']}.docx")
+                    if final_w_bytes:
+                        st.download_button("📥 Download Final Wing Document (.docx)", data=final_w_bytes, file_name=f"Final_Wing_Para_{item['chapter_number']}.docx", key=f"dl_ext_fa_{item['id']}")
+
                     col_up1, col_up2 = st.columns([2, 2])
                     with col_up1:
                         new_dest = st.selectbox("Switch Destination Status To:", EXTERNAL_DESTINATIONS, index=EXTERNAL_DESTINATIONS.index(item['external_destination']), key=f"fa_change_dest_val_{item['id']}")
@@ -303,15 +340,19 @@ if user_role == "F&A Cell (Nodal)":
                         if st.button(f"Update Status to {new_dest}", key=f"fa_update_status_btn_{item['id']}"):
                             transition_msg = status_remark if status_remark.strip() else f"Status manually redirected to {new_dest}."
                             updated_remarks = append_remark(item['remarks'], "F&A Cell (Status Re-route)", transition_msg)
-                            requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"external_destination": new_dest, "remarks": updated_remarks})
+                            requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers={**HEADERS, "Content-Type": "application/json"}, json={"external_destination": new_dest, "remarks": updated_remarks})
                             st.rerun()
                     
                     st.markdown("---")
                     final_remark = st.text_input("Add Final Closure Note / APMS Notes", key=f"fa_close_rem_{item['id']}")
                     if st.button("🔒 Permanently Archive & Close File", key=f"fa_close_btn_{item['id']}"):
                         updated_remarks = append_remark(item['remarks'], "F&A Cell (Final Closure)", final_remark) if final_remark.strip() else item['remarks']
-                        requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"is_closed": 1, "remarks": updated_remarks})
-                        st.success("File permanently archived under Closed status!")
+                        requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers={**HEADERS, "Content-Type": "application/json"}, json={"is_closed": 1, "remarks": updated_remarks})
+                        
+                        # STORAGE CLEANUP DISCARD: Delete Wing's temporary file upon final closure
+                        delete_storage_file(f"wing_upload_{item['id']}.docx")
+                        
+                        st.success("File permanently archived under Closed status! Discarded temporary file infrastructure.")
                         st.rerun()
         else:
             st.info("No external records currently out with tracking stations.")
@@ -323,7 +364,7 @@ if user_role == "F&A Cell (Nodal)":
         if not active_items:
             st.info("No active records available to edit.")
         else:
-            item_options = {f"ID {x['id']} | Rep: {x['report_no']} | Para: {x['chapter_number']} | Wing: {x['assigned_wing']}": x for x in active_items}
+            item_options = {f"ID {x['id']} | Rep: {x['report_no']} | Para: {x['chapter_number']}": x for x in active_items}
             selected_label = st.selectbox("Select ATN Entry to Correct:", list(item_options.keys()))
             target_item = item_options[selected_label]
             
@@ -367,27 +408,46 @@ if user_role == "F&A Cell (Nodal)":
                     }
                     
                     patch_url = f"{SUPABASE_URL}/rest/v1/atns?id=eq.{target_item['id']}"
-                    requests.patch(patch_url, headers=HEADERS, json=update_payload)
+                    requests.patch(patch_url, headers={**HEADERS, "Content-Type": "application/json"}, json=update_payload)
                     st.success("Cloud record updated successfully!")
                     st.rerun()
 
 # --- 2. OPERATIONAL WINGS ROLE ---
 if user_role in WING_NAMES:
     st.header(f"📥 Action Queue for {user_role} Branch")
-    wing_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?assigned_wing=eq.{user_role}&date_sent_to_fa=is.null&is_closed=eq.0", headers=HEADERS).json()
+    wing_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?assigned_wing=eq.{user_role}&date_sent_to_fa=is.null&is_closed=eq.0", headers={**HEADERS, "Content-Type": "application/json"}).json()
     if wing_items and isinstance(wing_items, list):
         for item in wing_items:
-            wing_header = f"🔴 Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} | Dept: {item.get('ministry_dept', 'N/A')}"
+            wing_header = f"🔴 Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')}"
             with st.expander(wing_header, expanded=True):
                 st.write(f"**Subject:** {item['subject']}")
-                st.caption(f"🛡️ **PAC/Non-PAC:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Journey:** {item.get('journey_status', '1st Journey')} | 📅 **Target Upload on APMS:** {item.get('target_date_upload', 'N/A')}")
+                
+                # FILE DOWNLOAD ADDED: Wings can pull down the initial file uploaded by F&A Cell
+                fa_doc_bytes = download_storage_file(f"fa_upload_{item['id']}.docx")
+                if fa_doc_bytes:
+                    st.download_button("📥 Download Received ATN Document (.docx)", data=fa_doc_bytes, file_name=f"Received_ATN_Para_{item['chapter_number']}.docx", key=f"dl_fa_file_{item['id']}")
+                else:
+                    st.caption("ℹ️ No initial document attached by F&A Cell.")
+                
+                st.caption(f"🛡️ **PAC/Non-PAC:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Journey:** {item.get('journey_status', '1st Journey')}")
                 if item['remarks']: 
                     st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"wing_hist_{item['id']}")
+                
+                st.markdown("##### 🚀 Submit Action Return")
+                # FILE UPLOADER ADDED: Wings can upload their updated document here
+                wing_uploaded_doc = st.file_uploader("Upload Updated ATN Return File (.docx)", type=["docx"], key=f"upload_wing_doc_{item['id']}")
                 sent_date = st.date_input("Select Date Sent to F&A Cell", key=f"wing_date_{item['id']}")
                 wing_remark = st.text_input("Add Wing Action Remarks", key=f"wing_rem_{item['id']}")
+                
                 if st.button("Forward back to F&A Cell", key=f"wing_btn_{item['id']}"):
+                    if wing_uploaded_doc:
+                        # Save the wing's file
+                        upload_storage_file(wing_uploaded_doc.getvalue(), f"wing_upload_{item['id']}.docx")
+                        # STORAGE CLEANUP DISCARD: Delete F&A's initial temporary file now that it's sent back
+                        delete_storage_file(f"fa_upload_{item['id']}.docx")
+                        
                     updated_remarks = append_remark(item['remarks'], f"{user_role} Wing", wing_remark) if wing_remark.strip() else item['remarks']
-                    requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"date_sent_to_fa": str(sent_date), "remarks": updated_remarks})
+                    requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers={**HEADERS, "Content-Type": "application/json"}, json={"date_sent_to_fa": str(sent_date), "remarks": updated_remarks})
                     st.rerun()
     else:
         st.info("🎉 Clear queue! No files currently assigned to your wing.")
@@ -403,13 +463,17 @@ if user_role == "Group Officer (GO)":
     
     with go_tab_action:
         st.subheader("Awaiting Initial Dispatch Signatures")
-        go_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_to_go=not.is.null&date_sent_external=is.null&is_closed=eq.0", headers=HEADERS).json()
+        go_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_to_go=not.is.null&date_sent_external=is.null&is_closed=eq.0", headers={**HEADERS, "Content-Type": "application/json"}).json()
         if go_items and isinstance(go_items, list):
             for item in go_items:
-                go_header = f"🔵 Pending Dispatch ➔ Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} | Dept: {item.get('ministry_dept', 'N/A')} | Origin: {item.get('assigned_wing', 'N/A')}"
+                go_header = f"🔵 Pending Dispatch ➔ Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')}"
                 with st.expander(go_header, expanded=True):
                     st.write(f"**Subject Description:** {item['subject']}")
-                    st.caption(f"🛡️ **PAC/Non-PAC:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Journey:** {item.get('journey_status', '1st Journey')} | 📅 **Year:** {item.get('year')}")
+                    
+                    # FILE DOWNLOAD ADDED: GO can download the wing file for assessment
+                    go_view_bytes = download_storage_file(f"wing_upload_{item['id']}.docx")
+                    if go_view_bytes:
+                        st.download_button("📥 Download Wing's Document (.docx)", data=go_view_bytes, file_name=f"GO_Review_Para_{item['chapter_number']}.docx", key=f"dl_go_view_{item['id']}")
                     
                     if item['remarks']: 
                         st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"go_action_hist_{item['id']}")
@@ -427,22 +491,25 @@ if user_role == "Group Officer (GO)":
                             "external_destination": dest, 
                             "remarks": updated_remarks
                         }
-                        requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json=dispatch_payload)
-                        st.success("Dispatched! Removed from pending signature stage.")
+                        requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers={**HEADERS, "Content-Type": "application/json"}, json=dispatch_payload)
+                        st.success("Dispatched!")
                         st.rerun()
         else:
             st.info("🎉 No files awaiting fresh processing signatures.")
 
         st.markdown("---")
         st.subheader("🌐 Active External Trackers (Awaiting Closure)")
-        ext_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_external=not.is.null&is_closed=eq.0", headers=HEADERS).json()
+        ext_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_external=not.is.null&is_closed=eq.0", headers={**HEADERS, "Content-Type": "application/json"}).json()
         if ext_items and isinstance(ext_items, list):
             for item in ext_items:
-                ext_header = f"📌 Outward Tracker ➔ Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} | Dept: {item.get('ministry_dept', 'N/A')} ➔ Handed to: {item['external_destination']}"
+                ext_header = f"📌 Outward Tracker ➔ Para No: {item.get('chapter_number', 'N/A')} ➔ Handed to: {item['external_destination']}"
                 with st.expander(ext_header, expanded=False):
-                    if item['remarks']: 
-                        st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"ext_hist_{item['id']}")
                     
+                    # FILE DOWNLOAD ADDED: GO can download the file from the outward queue
+                    final_w_bytes_go = download_storage_file(f"wing_upload_{item['id']}.docx")
+                    if final_w_bytes_go:
+                        st.download_button("📥 Download Document (.docx)", data=final_w_bytes_go, file_name=f"GO_External_Para_{item['chapter_number']}.docx", key=f"dl_ext_go_{item['id']}")
+
                     col_up1, col_up2 = st.columns([2, 2])
                     with col_up1:
                         new_dest = st.selectbox("Switch Destination Status To:", EXTERNAL_DESTINATIONS, index=EXTERNAL_DESTINATIONS.index(item['external_destination']), key=f"change_dest_val_{item['id']}")
@@ -453,14 +520,19 @@ if user_role == "Group Officer (GO)":
                         if st.button(f"Update Status to {new_dest}", key=f"update_status_btn_{item['id']}"):
                             transition_msg = status_remark if status_remark.strip() else f"Status manually redirected to {new_dest}."
                             updated_remarks = append_remark(item['remarks'], "Group Officer (Status Re-route)", transition_msg)
-                            requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"external_destination": new_dest, "remarks": updated_remarks})
+                            requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers={**HEADERS, "Content-Type": "application/json"}, json={"external_destination": new_dest, "remarks": updated_remarks})
                             st.rerun()
                     
                     st.markdown("---")
                     final_remark = st.text_input("Add Final Closure Note (Optional)", key=f"close_rem_{item['id']}")
                     if st.button("🔒 Permanently Archive & Close File", key=f"close_btn_{item['id']}"):
                         updated_remarks = append_remark(item['remarks'], "Group Officer (Closure)", final_remark) if final_remark.strip() else item['remarks']
-                        requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"is_closed": 1, "remarks": updated_remarks})
+                        requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers={**HEADERS, "Content-Type": "application/json"}, json={"is_closed": 1, "remarks": updated_remarks})
+                        
+                        # STORAGE CLEANUP DISCARD: Delete Wing's temporary file upon final closure
+                        delete_storage_file(f"wing_upload_{item['id']}.docx")
+                        
+                        st.success("File permanently archived under Closed status! Discarded temporary file infrastructure.")
                         st.rerun()
 
     with go_tab_edit:
@@ -469,7 +541,7 @@ if user_role == "Group Officer (GO)":
         if not all_active_items:
             st.info("No active pipeline files available to correct.")
         else:
-            go_edit_options = {f"Para: {x['chapter_number']} | Rep: {x['report_no']} | Dept: {x.get('ministry_dept', 'N/A')} | Wing: {x['assigned_wing']} (ID: {x['id']})": x for x in all_active_items}
+            go_edit_options = {f"Para: {x['chapter_number']} | Rep: {x['report_no']} (ID: {x['id']})": x for x in all_active_items}
             selected_edit_label = st.selectbox("Select Target File for Correction:", list(go_edit_options.keys()), key="go_universal_select")
             go_target_item = go_edit_options[selected_edit_label]
             
@@ -496,8 +568,8 @@ if user_role == "Group Officer (GO)":
                         "pac_status": go_opt_pac, "journey_status": go_opt_journ, "subject": go_opt_sub,
                         "remarks": meta_log
                     }
-                    requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{go_target_item['id']}", headers=HEADERS, json=meta_payload)
-                    st.success("Metadata updates saved and updated in comments history logs!")
+                    requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{go_target_item['id']}", headers={**HEADERS, "Content-Type": "application/json"}, json=meta_payload)
+                    st.success("Metadata updates saved!")
                     st.rerun()
 
 # --- 4. GLOBAL DASHBOARD (MASTER BOARD FOR OTHER ROLES) ---
