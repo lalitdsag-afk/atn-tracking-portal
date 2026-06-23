@@ -79,7 +79,6 @@ if "dg_sub_filter" not in st.session_state:
     st.session_state["dg_sub_filter"] = "All"
 
 # --- SIDEBAR BRANDING & AUTHENTICATION ---
-# FIXED: Updated target name string to explicitly load 'cag.png'
 logo_path = "cag.png"
 if os.path.exists(logo_path):
     st.sidebar.image(logo_path, use_container_width=True)
@@ -214,9 +213,14 @@ if user_role == "DG (Director General)":
     else:
         st.info("No data available.")
 
-# --- 1. F&A CELL (TRACKING NODAL) ROLE ---
+# --- 1. F&A CELL (TRACKING NODAL) ROLE (UPGRADED THREE-TAB DECK) ---
 if user_role == "F&A Cell (Nodal)":
-    tab_upload, tab_edit = st.tabs(["📋 Upload New ATN Record", "✏️ Edit Existing ATN Records"])
+    # FIXED: Restructured F&A screen to incorporate a standalone queue tab for items received back from wings
+    tab_upload, tab_received, tab_edit = st.tabs([
+        "📋 Upload New ATN Record", 
+        "📥 ATNs Received Back From Wings Queue",
+        "✏️ Edit Existing ATN Records"
+    ])
     
     with tab_upload:
         st.subheader("Register a New Audit Paragraph")
@@ -254,6 +258,30 @@ if user_role == "F&A Cell (Nodal)":
                 st.success("Successfully registered and sent ATN to wing branch!")
                 st.rerun()
 
+    # FIXED: Standalone Tab 2 logic explicitly trapping items sent by operational units awaiting processing
+    with tab_received:
+        st.subheader("⚖️ Verification & Scrutiny Queue")
+        fa_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_to_fa=not.is.null&date_sent_to_go=is.null&is_closed=eq.0", headers=HEADERS).json()
+        if fa_items and isinstance(fa_items, list):
+            for item in fa_items:
+                fa_header = f"🟡 Received Back from {item.get('assigned_wing', 'Wing')} ➔ Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} | Dept: {item.get('ministry_dept', 'N/A')}"
+                with st.expander(fa_header, expanded=True):
+                    st.write(f"**Subject:** {item['subject']}")
+                    st.caption(f"🛡️ **Type:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Journey:** {item.get('journey_status', '1st Journey')} | 📅 **Target Upload Date on APMS:** {item.get('target_date_upload', 'N/A')}")
+                    if item['remarks']: 
+                        st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"fa_hist_{item['id']}")
+                    
+                    st.markdown("##### 🚀 Route Forward to Group Officer")
+                    sent_date = st.date_input("Select Date Forwarded to GO", key=f"fa_date_{item['id']}")
+                    fa_remark = st.text_input("Add F&A Verification Scrutiny Remarks", key=f"fa_rem_{item['id']}")
+                    if st.button("Forward to Group Officer (GO)", key=f"fa_btn_{item['id']}"):
+                        updated_remarks = append_remark(item['remarks'], "F&A Cell (Scrutiny Check)", fa_remark) if fa_remark.strip() else item['remarks']
+                        requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"date_sent_to_go": str(sent_date), "remarks": updated_remarks})
+                        st.success("Forwarded to GO! File cleared from this tab.")
+                        st.rerun()
+        else:
+            st.info("🎉 Clear queue! No records currently forwarded back from wings awaiting F&A processing.")
+
     with tab_edit:
         st.subheader("Modify Live Pipeline Entries")
         active_items = fetch_all_active()
@@ -276,7 +304,7 @@ if user_role == "F&A Cell (Nodal)":
                     e_wing = st.selectbox("Assigned Wing", WING_NAMES, index=WING_NAMES.index(target_item['assigned_wing']) if target_item['assigned_wing'] in WING_NAMES else 0)
                     e_pac = st.selectbox("PAC/Non-PAC", PAC_OPTIONS, index=PAC_OPTIONS.index(target_item.get('pac_status', 'Non PAC')) if target_item.get('pac_status') in PAC_OPTIONS else 0)
                 with ec3:
-                    e_journey = st.selectbox("Journey", JOURNEY_OPTIONS, index=JOURNEY_OPTIONS.index(target_item.get('journey_status', '1st Journey')) if target_item.get('journey_status') in JOURNEY_OPTIONS else 0)
+                    e_journey = st.selectbox("Journey", JOURWAY_OPTIONS, index=JOURNEY_OPTIONS.index(target_item.get('journey_status', '1st Journey')) if target_item.get('journey_status') in JOURNEY_OPTIONS else 0) if 'JOURWAY_OPTIONS' not in globals() else st.selectbox("Journey", JOURNEY_OPTIONS, index=JOURNEY_OPTIONS.index(target_item.get('journey_status', '1st Journey')) if target_item.get('journey_status') in JOURNEY_OPTIONS else 0)
                     
                     def parse_dt(dt_str):
                         try: return datetime.strptime(dt_str, "%Y-%m-%d").date()
