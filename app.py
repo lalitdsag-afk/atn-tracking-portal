@@ -83,6 +83,42 @@ def send_atn_email(recipient_email, atn_para, subject_title, target_wing):
         print(f"Email routing error log: {e}")
         return False
 
+# --- WHATSAPP GREEN-API NOTIFICATION ENGINE ---
+def send_atn_whatsapp_alert(recipient_mobile, atn_para, target_wing):
+    """Dispatches a direct, formatted alert via Green-API (WhatsApp QR Gateway)"""
+    try:
+        instance_id = st.secrets["green_api"]["instance_id"]
+        api_token = st.secrets["green_api"]["api_token"]
+    except KeyError:
+        return False
+
+    phone_clean = "".join(filter(str.isdigit, str(recipient_mobile)))
+    if len(phone_clean) == 10:
+        phone_clean = f"91{phone_clean}"
+    
+    if not phone_clean or phone_clean == "Not Set":
+        return False
+
+    whatsapp_id = f"{phone_clean}@c.us"
+    url = f"https://api.green-api.com/waInstance{instance_id}/sendMessage/{api_token}"
+    
+    message_payload = (
+        f"🏛️ *ATN Tracking Portal Notification*\n\n"
+        f"A new Audit Paragraph has been dispatched to your branch.\n\n"
+        f"📍 *Para Reference:* {atn_para}\n"
+        f"💼 *Handling Wing:* {target_wing}\n\n"
+        f"Please access the Nodal Desk queue to download the .docx workspace file."
+    )
+    
+    body = {"chatId": whatsapp_id, "message": message_payload}
+    
+    try:
+        response = requests.post(url, json=body, timeout=10)
+        return response.status_code == 200
+    except Exception as e:
+        print(f"Green-API Exception: {e}")
+        return False
+
 # --- DATABASE ENGINE FUNCTIONS ---
 def fetch_all_active(ministry="All", wing="All"):
     url = f"{SUPABASE_URL}/rest/v1/atns?is_closed=eq.0"
@@ -196,7 +232,7 @@ else:
     with st.sidebar.expander("⚙️ Account Settings & Alert Profile"):
         st.markdown("##### 📥 Communication Routing Parameters")
         fresh_email_input = st.text_input("Nodal Alert Email Address", value=st.session_state["user_info"].get("email", ""))
-        fresh_mobile_input = st.text_input("Nodal Mobile Number (e.g., +91...)", value=st.session_state["user_info"].get("mobile", ""))
+        fresh_mobile_input = st.text_input("Nodal Mobile Number (e.g., 9876543210)", value=st.session_state["user_info"].get("mobile", ""))
         
         if st.button("Update Profile Parameters"):
             update_user_profile_comms(current_user, fresh_email_input.strip(), fresh_mobile_input.strip())
@@ -362,12 +398,14 @@ if user_role == "F&A Cell (Nodal)":
                     if uploaded_word_doc:
                         upload_storage_file(uploaded_word_doc.getvalue(), f"fa_upload_{created_id}.docx")
                     
-                    # DYNAMIC EMAIL ROUTER: Fetches user-registered communication properties
+                    # DYNAMIC INTEGRATED DUAL NOTIFIER
                     wing_comms = fetch_wing_comms_by_role(wing)
                     if wing_comms["email"]:
                         send_atn_email(wing_comms["email"], para_no, subject, wing)
+                    if wing_comms["mobile"]:
+                        send_atn_whatsapp_alert(wing_comms["mobile"], para_no, wing)
                 
-                st.success("Successfully registered, sent file to cloud storage, and fired automated notification to user-registered email destination!")
+                st.success("Successfully registered, uploaded document workspace, and dispatched alerts to the destination branch!")
                 st.rerun()
 
     with tab_received:
@@ -576,9 +614,11 @@ if user_role == "Group Officer (GO)":
         ext_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_external=not.is.null&is_closed=eq.0", headers={**HEADERS, "Content-Type": "application/json"}).json()
         if ext_items and isinstance(ext_items, list):
             for item in ext_items:
-                ext_header = f"📌 Outward Tracker ➔ Para No: {item.get('chapter_number', 'N/A')} ➔ Handed to: {item['external_destination']}"
+                # UPDATED ROW DISPLAY LAYOUT FOR THE GROUP OFFICER SCREEN
+                ext_header = f"📌 Para No: {item.get('chapter_number', 'N/A')} | Rep No: {item.get('report_no', 'N/A')} | Sub: {item.get('subject', 'N/A')[:45]}... < Dept: {item.get('ministry_dept', 'N/A')}"
                 with st.expander(ext_header, expanded=False):
                     
+                    st.write(f"**Full Context Subject Description:** {item['subject']}")
                     final_w_bytes_go = download_storage_file(f"wing_upload_{item['id']}.docx")
                     if final_w_bytes_go:
                         st.download_button("📥 Download Document (.docx)", data=final_w_bytes_go, file_name=f"GO_External_Para_{item['chapter_number']}.docx", key=f"dl_ext_go_{item['id']}")
@@ -605,6 +645,8 @@ if user_role == "Group Officer (GO)":
                         delete_storage_file(f"wing_upload_{item['id']}.docx")
                         st.success("File permanently archived under Closed status!")
                         st.rerun()
+        else:
+            st.info("No active outward trackers currently registered.")
 
     with go_tab_edit:
         st.subheader("Administrative Metadata Modification Panel")
