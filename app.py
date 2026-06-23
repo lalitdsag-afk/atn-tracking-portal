@@ -102,8 +102,8 @@ def get_counts():
         "wings": len([x for x in res if not x.get('date_sent_to_fa')]),
         "fa": len([x for x in res if x.get('date_sent_to_fa') and not x.get('date_sent_to_go')]),
         "go": len([x for x in res if x.get('date_sent_to_go') and not x.get('date_sent_external')]),
-        "fc": len([x for x in res if x.get('date_sent_external') and row.get('external_destination') == "F&C" if 'row' in globals() else True]),
-        "hq": len([x for x in res if x.get('date_sent_external') and row.get('external_destination') == "HQ" if 'row' in globals() else True])
+        "fc": len([x for x in res if x.get('date_sent_external') and x.get('external_destination') == "F&C"]),
+        "hq": len([x for x in res if x.get('date_sent_external') and x.get('external_destination') == "HQ"])
     }
 
 def authenticate_user(uid, pwd):
