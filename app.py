@@ -30,13 +30,14 @@ def fetch_all_active(ministry="All", wing="All"):
 def get_counts():
     res = requests.get(f"{SUPABASE_URL}/rest/v1/atns?is_closed=eq.0", headers=HEADERS).json()
     if not isinstance(res, list): 
-        return {"total": 0, "wings": 0, "fa": 0, "go": 0, "ext": 0}
+        return {"total": 0, "wings": 0, "fa": 0, "go": 0, "fc": 0, "hq": 0}
     return {
         "total": len(res),
         "wings": len([x for x in res if not x.get('date_sent_to_fa')]),
         "fa": len([x for x in res if x.get('date_sent_to_fa') and not x.get('date_sent_to_go')]),
         "go": len([x for x in res if x.get('date_sent_to_go') and not x.get('date_sent_external')]),
-        "ext": len([x for x in res if x.get('date_sent_external')])
+        "fc": len([x for x in res if x.get('date_sent_external') and x.get('external_destination') == "F&C"]),
+        "hq": len([x for x in res if x.get('date_sent_external') and x.get('external_destination') == "HQ"])
     }
 
 def authenticate_user(uid, pwd):
@@ -64,10 +65,8 @@ JOURNEY_OPTIONS = ["1st Journey", "2nd Journey"]
 YEARS_POOL = ["2022", "2023", "2024", "2025", "2026", "2027", "2028"]
 
 # --- APP LAYOUT ---
-# FIXED: Renamed browser tab name to "ATN Tracking Portal"
 st.set_page_config(page_title="ATN Tracking Portal", layout="wide")
 
-# FIXED: Set application main title to "ATN Tracking Portal" and added institutional subtitle below it
 st.title("🏛️ ATN Tracking Portal")
 st.markdown("##### **DGA, CE (ESD)**")
 st.markdown("---")
@@ -75,6 +74,8 @@ st.markdown("---")
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
     st.session_state["user_info"] = None
+if "dg_sub_filter" not in st.session_state:
+    st.session_state["dg_sub_filter"] = "All"
 
 # --- SIDEBAR AUTHENTICATION ---
 st.sidebar.header("🔐 User Authentication")
@@ -115,20 +116,38 @@ else:
 filter_ministry = "All"
 filter_wing = "All"
 
-# --- 0. DG DASHBOARD ROLE (CUSTOM TABLE STRUCTURING) ---
+# --- 0. DG DASHBOARD ROLE ---
 if user_role == "DG (Director General)":
     st.header("🦅 Director General (DG) Executive Overview")
     counts = get_counts()
     
-    m_col1, m_col2, m_col3, m_col4, m_col5 = st.columns(5)
-    m_col1.metric("📌 Total Active Files", counts["total"])
-    m_col2.metric("⏳ Pending with Wings", counts["wings"])
-    m_col3.metric("💼 In F&A Cell Review", counts["fa"])
-    m_col4.metric("👑 With Group Officer", counts["go"])
-    m_col5.metric("🌐 Sent Externally", counts["ext"])
+    # Clickable Metric Quick Filters Workspace
+    st.markdown("##### 🔍 Click on any segment badge to instantly focus the pipeline grid below:")
+    m_col1, m_col2, m_col3, m_col4, m_col5, m_col6 = st.columns(6)
+    
+    with m_col1:
+        if st.button(f"📋 Total Active\n👉 {counts['total']}", use_container_width=True):
+            st.session_state["dg_sub_filter"] = "All"
+    with m_col2:
+        if st.button(f"⏳ Pending Wings\n👉 {counts['wings']}", use_container_width=True):
+            st.session_state["dg_sub_filter"] = "Pending Wings"
+    with m_col3:
+        if st.button(f"💼 In F&A Cell\n👉 {counts['fa']}", use_container_width=True):
+            st.session_state["dg_sub_filter"] = "Pending F&A"
+    with m_col4:
+        if st.button(f"👑 With GO\n👉 {counts['go']}", use_container_width=True):
+            st.session_state["dg_sub_filter"] = "Pending GO"
+    with m_col5:
+        if st.button(f"🏢 With F&C\n👉 {counts['fc']}", use_container_width=True):
+            st.session_state["dg_sub_filter"] = "With F&C"
+    with m_col6:
+        if st.button(f"🏢 With HQ\n👉 {counts['hq']}", use_container_width=True):
+            st.session_state["dg_sub_filter"] = "With HQ"
+
+    st.markdown(f"Current Dashboard Context Filter Focus: **📊 {st.session_state['dg_sub_filter']}**")
     
     st.markdown("---")
-    st.subheader("🔍 Interactive Pipeline Explorer")
+    st.subheader("🔍 Secondary Dropdown Explorers")
     f_col1, f_col2 = st.columns(2)
     with f_col1:
         filter_ministry = st.selectbox("Filter by Ministry/Dept", ["All"] + MINISTRIES)
@@ -136,26 +155,33 @@ if user_role == "DG (Director General)":
         filter_wing = st.selectbox("Filter by Handling Wing", ["All"] + WING_NAMES)
         
     st.markdown("---")
-    st.subheader("📊 Live Executive Pipeline Grid")
+    st.subheader("📊 Executive Pipeline Grid")
     
     all_active = fetch_all_active(ministry=filter_ministry, wing=filter_wing)
     if all_active and isinstance(all_active, list):
         dg_display_data = []
         for row in all_active:
-            status = f"🌐 With {row['external_destination']}" if row.get('date_sent_external') else ("👑 With GO" if row.get('date_sent_to_go') else ("💼 With F&A Cell" if row.get('date_sent_to_fa') else "⏳ With Wing"))
+            is_wing = not row.get('date_sent_to_fa')
+            is_fa = row.get('date_sent_to_fa') and not row.get('date_sent_to_go')
+            is_go = row.get('date_sent_to_go') and not row.get('date_sent_external')
+            is_fc_dest = row.get('date_sent_external') and row.get('external_destination') == "F&C"
+            is_hq_dest = row.get('date_sent_external') and row.get('external_destination') == "HQ"
             
-            # Extract explicit tracking dates based on conditional values
+            # Apply Clickable Metric Filtering Interlock Logic
+            sf = st.session_state["dg_sub_filter"]
+            if sf == "Pending Wings" and not is_wing: continue
+            if sf == "Pending F&A" and not is_fa: continue
+            if sf == "Pending GO" and not is_go: continue
+            if sf == "With F&C" and not is_fc_dest: continue
+            if sf == "With HQ" and not is_hq_dest: continue
+
+            # Evaluate Explicit Structural Workflow Timestamps
+            status = f"🌐 With {row['external_destination']}" if row.get('date_sent_external') else ("👑 With GO" if row.get('date_sent_to_go') else ("💼 With F&A Cell" if row.get('date_sent_to_fa') else f"⏳ With Wing ({row['assigned_wing']})"))
             date_wing_fwd = row.get('date_sent_to_fa') if row.get('date_sent_to_fa') else "Pending"
             
-            date_sent_fc = "N/A"
-            date_sent_hq = "N/A"
-            if row.get('date_sent_external'):
-                if row.get('external_destination') == "F&C":
-                    date_sent_fc = row.get('date_sent_external')
-                elif row.get('external_destination') == "HQ":
-                    date_sent_hq = row.get('date_sent_external')
+            date_sent_fc = row.get('date_sent_external') if is_fc_dest else "N/A"
+            date_sent_hq = row.get('date_sent_external') if is_hq_dest else "N/A"
             
-            # Fixed: Removed remarks completely, added specific requested date tracking columns
             dg_display_data.append({
                 "Year": row['year'], 
                 "Report No": row['report_no'], 
@@ -173,9 +199,13 @@ if user_role == "DG (Director General)":
                 "Date Sent to HQ": date_sent_hq,
                 "Current Station Status": status
             })
-        st.table(dg_display_data)
+            
+        if dg_display_data:
+            st.table(dg_display_data)
+        else:
+            st.info("No records match the active segment filters.")
     else:
-        st.info("The monitoring grid is currently empty. No active items match the search filters.")
+        st.info("No data available.")
 
 # --- 1. F&A CELL (TRACKING NODAL) ROLE ---
 if user_role == "F&A Cell (Nodal)":
