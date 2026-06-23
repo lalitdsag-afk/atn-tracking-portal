@@ -75,19 +75,26 @@ if "authenticated" not in st.session_state:
 # --- SIDEBAR AUTHENTICATION ---
 st.sidebar.header("🔐 User Authentication")
 
-if not st.session_state["authenticated"]:
-    input_uid = st.sidebar.text_input("User ID / Account")
-    input_pwd = st.sidebar.text_input("Password", type="password")
-    if st.sidebar.button("🔑 Log In"):
-        account = authenticate_user(input_uid, input_pwd)
-        if account:
-            st.session_state["authenticated"] = True
-            st.session_state["user_info"] = {"username": account["username"], "role": account["role"]}
-            st.rerun()
-        else:
-            st.sidebar.error("❌ Invalid ID or Password.")
-    st.stop()
+if not st.sidebar.button("🔑 Log In" if not st.session_state["authenticated"] else "🚪 Log Out"):
+    if not st.session_state["authenticated"]:
+        input_uid = st.sidebar.text_input("User ID / Account")
+        input_pwd = st.sidebar.text_input("Password", type="password")
+        if st.sidebar.button("Confirm Login"):
+            account = authenticate_user(input_uid, input_pwd)
+            if account:
+                st.session_state["authenticated"] = True
+                st.session_state["user_info"] = {"username": account["username"], "role": account["role"]}
+                st.rerun()
+            else:
+                st.sidebar.error("❌ Invalid ID or Password.")
+        st.stop()
 else:
+    if st.session_state["authenticated"]:
+        st.session_state["authenticated"] = False
+        st.session_state["user_info"] = None
+        st.rerun()
+
+if st.session_state["authenticated"]:
     current_user = st.session_state["user_info"]["username"]
     user_role = st.session_state["user_info"]["role"]
     st.sidebar.info(f"User ID: **{current_user}**\n\nRole: **{user_role}**")
@@ -101,11 +108,6 @@ else:
                 st.success("Password modified in cloud database!")
             else:
                 st.error("Passwords mismatch or empty value.")
-
-    if st.sidebar.button("🚪 Log Out"):
-        st.session_state["authenticated"] = False
-        st.session_state["user_info"] = None
-        st.rerun()
 
 # --- ROLE-BASED DASHBOARD FILTER INITIALIZATION ---
 filter_ministry = "All"
@@ -226,27 +228,6 @@ if user_role == "F&A Cell (Nodal)":
                     st.success("Cloud record updated successfully!")
                     st.rerun()
 
-    st.markdown("---")
-    st.header("📥 F&A Verification & Scrutiny Queue")
-    fa_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_to_fa=not.is.null&date_sent_to_go=is.null&is_closed=eq.0", headers=HEADERS).json()
-    if fa_items and isinstance(fa_items, list):
-        for item in fa_items:
-            # FIXED: Added explicit Para No visibility to F&A Review dropdown bar
-            fa_header = f"🟡 Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} | Dept: {item.get('ministry_dept', 'N/A')}"
-            with st.expander(fa_header, expanded=True):
-                st.write(f"**Subject:** {item['subject']}")
-                st.caption(f"🛡️ **Type:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Journey:** {item.get('journey_status', '1st Journey')} | 📅 **Target Upload Date on APMS:** {item.get('target_date_upload', 'N/A')}")
-                if item['remarks']: 
-                    st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"fa_hist_{item['id']}")
-                sent_date = st.date_input("Select Date Forwarded to GO", key=f"fa_date_{item['id']}")
-                fa_remark = st.text_input("Add F&A Verification Remarks", key=f"fa_rem_{item['id']}")
-                if st.button("Forward to Group Officer (GO)", key=f"fa_btn_{item['id']}"):
-                    updated_remarks = append_remark(item['remarks'], "F&A Cell (Scrutiny)", fa_remark) if fa_remark.strip() else item['remarks']
-                    requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"date_sent_to_go": str(sent_date), "remarks": updated_remarks})
-                    st.rerun()
-    else:
-        st.info("No documents are currently awaiting F&A Verification.")
-
 # --- 2. OPERATIONAL WINGS ROLE ---
 if user_role in WING_NAMES:
     st.header(f"📥 Action Queue for {user_role} Branch")
@@ -274,20 +255,54 @@ if user_role == "Group Officer (GO)":
     go_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_to_go=not.is.null&date_sent_external=is.null&is_closed=eq.0", headers=HEADERS).json()
     if go_items and isinstance(go_items, list):
         for item in go_items:
-            # FIXED: Added explicit Para No visibility to Group Officer (GO) dropdown bars
             go_header = f"🔵 Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} | Origin: {item.get('assigned_wing', 'N/A')}"
             with st.expander(go_header, expanded=True):
-                st.write(f"**Subject:** {item['subject']}")
-                st.caption(f"🛡️ **PAC/Non-PAC:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Journey:** {item.get('journey_status', '1st Journey')} | 📅 **Target Upload on APMS:** {item.get('target_date_upload', 'N/A')}")
+                
+                # --- NEW INLINE UPDATE FEATURE FOR GO ---
+                st.markdown("##### 📝 Review & Update Metadata")
+                gov_c1, gov_c2, gov_c3 = st.columns(3)
+                with gov_c1:
+                    go_opt_year = st.selectbox("Year", YEARS_POOL, index=YEARS_POOL.index(item['year']) if item['year'] in YEARS_POOL else 0, key=f"go_yr_{item['id']}")
+                    go_opt_rep = st.text_input("Report No.", value=item['report_no'], key=f"go_rp_{item['id']}")
+                with gov_c2:
+                    go_opt_para = st.text_input("Para Number", value=item['chapter_number'], key=f"go_pr_{item['id']}")
+                    go_opt_pac = st.selectbox("PAC/Non-PAC", PAC_OPTIONS, index=PAC_OPTIONS.index(item.get('pac_status', 'Non PAC')) if item.get('pac_status') in PAC_OPTIONS else 0, key=f"go_pc_{item['id']}")
+                with gov_c3:
+                    go_opt_journ = st.selectbox("Journey", JOURNEY_OPTIONS, index=JOURNEY_OPTIONS.index(item.get('journey_status', '1st Journey')) if item.get('journey_status') in JOURNEY_OPTIONS else 0, key=f"go_jr_{item['id']}")
+                
+                go_opt_sub = st.text_area("Subject Description", value=item['subject'], key=f"go_sb_{item['id']}")
+                
+                if st.button("✏️ Apply Metadata Updates Only", key=f"go_update_meta_{item['id']}"):
+                    meta_log = append_remark(item['remarks'], "Group Officer", "Metadata values updated during review deck appraisal.")
+                    meta_payload = {
+                        "year": go_opt_year, "report_no": go_opt_rep, "chapter_number": go_opt_para,
+                        "pac_status": go_opt_pac, "journey_status": go_opt_journ, "subject": go_opt_sub,
+                        "remarks": meta_log
+                    }
+                    requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json=meta_payload)
+                    st.success("Changes saved successfully!")
+                    st.rerun()
+                
+                st.markdown("---")
+                # --- STANDARD WORKFLOW FLOW ACTIONS ---
+                st.markdown("##### 🚀 Execution Actions")
                 if item['remarks']: 
                     st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"go_hist_{item['id']}")
+                
                 col_d1, col_d2 = st.columns(2)
                 with col_d1: ext_date = st.date_input("Date Dispatched Outward", key=f"go_date_{item['id']}")
                 with col_d2: dest = st.selectbox("External Destination", EXTERNAL_DESTINATIONS, key=f"go_dest_{item['id']}")
                 go_remark = st.text_input("Add GO Approval Remarks", key=f"go_rem_{item['id']}")
-                if st.button("Log External Dispatch", key=f"go_btn_{item['id']}"):
+                
+                if st.button("Log External Dispatch & Route Outward", key=f"go_btn_{item['id']}"):
+                    # Capture any text changes made in the forms above during final checkout dispatch
                     updated_remarks = append_remark(item['remarks'], "Group Officer", go_remark) if go_remark.strip() else item['remarks']
-                    requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"date_sent_external": str(ext_date), "external_destination": dest, "remarks": updated_remarks})
+                    dispatch_payload = {
+                        "year": go_opt_year, "report_no": go_opt_rep, "chapter_number": go_opt_para,
+                        "pac_status": go_opt_pac, "journey_status": go_opt_journ, "subject": go_opt_sub,
+                        "date_sent_external": str(ext_date), "external_destination": dest, "remarks": updated_remarks
+                    }
+                    requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json=dispatch_payload)
                     st.rerun()
     else:
         st.info("No incoming files awaiting initialization/dispatch signatures.")
@@ -297,7 +312,6 @@ if user_role == "Group Officer (GO)":
     ext_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_external=not.is.null&is_closed=eq.0", headers=HEADERS).json()
     if ext_items and isinstance(ext_items, list):
         for item in ext_items:
-            # FIXED: Added explicit Para No visibility to External pending trackers tracking header
             ext_header = f"📌 Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} ➔ Handed to: {item['external_destination']}"
             with st.expander(ext_header, expanded=False):
                 if item['remarks']: 
