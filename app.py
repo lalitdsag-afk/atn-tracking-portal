@@ -64,8 +64,12 @@ JOURNEY_OPTIONS = ["1st Journey", "2nd Journey"]
 YEARS_POOL = ["2022", "2023", "2024", "2025", "2026", "2027", "2028"]
 
 # --- APP LAYOUT ---
-st.set_page_config(page_title="ATN Milestone Portal", layout="wide")
-st.title("🏛️ Real-Time ATN Milestone Tracking Portal")
+# FIXED: Renamed browser tab name to "ATN Tracking Portal"
+st.set_page_config(page_title="ATN Tracking Portal", layout="wide")
+
+# FIXED: Set application main title to "ATN Tracking Portal" and added institutional subtitle below it
+st.title("🏛️ ATN Tracking Portal")
+st.markdown("##### **DGA, CE (ESD)**")
 st.markdown("---")
 
 if "authenticated" not in st.session_state:
@@ -151,7 +155,7 @@ if user_role == "DG (Director General)":
                 elif row.get('external_destination') == "HQ":
                     date_sent_hq = row.get('date_sent_external')
             
-            # FIXED: Removed remarks completely, added specific requested date tracking columns
+            # Fixed: Removed remarks completely, added specific requested date tracking columns
             dg_display_data.append({
                 "Year": row['year'], 
                 "Report No": row['report_no'], 
