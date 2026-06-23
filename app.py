@@ -215,12 +215,11 @@ if user_role == "DG (Director General)":
 
 # --- 1. F&A CELL (TRACKING NODAL) ROLE ---
 if user_role == "F&A Cell (Nodal)":
-    # UPDATED: Split the system to house an independent 'Uploaded' closure sandbox
-    tab_upload, tab_received, tab_external, tab_closeout, tab_edit = st.tabs([
+    # UPDATED: Consolidated into a clean 4-tab workspace with the tracking desk named "Uploaded"
+    tab_upload, tab_received, tab_uploaded, tab_edit = st.tabs([
         "📋 Upload New ATN Record", 
         "📥 ATNs Received Back From Wings Queue",
-        "🌐 Active External Trackers",
-        "✅ Uploaded (Archive)",
+        "🌐 Uploaded",
         "✏️ Edit Existing ATN Records"
     ])
     
@@ -283,9 +282,9 @@ if user_role == "F&A Cell (Nodal)":
         else:
             st.info("🎉 Clear queue! No records currently forwarded back from wings awaiting F&A processing.")
 
-    # UPDATED: Handles Transit Updates without closure tools mixed in
-    with tab_external:
-        st.subheader("🌐 Active External Trackers (Outward Monitoring)")
+    # UPDATED: Merged tracking capabilities here under the clean "Uploaded" tab layout
+    with tab_uploaded:
+        st.subheader("🌐 External Tracker Status & Record Archive")
         fa_ext_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_external=not.is.null&is_closed=eq.0", headers=HEADERS).json()
         if fa_ext_items and isinstance(fa_ext_items, list):
             for item in fa_ext_items:
@@ -306,29 +305,16 @@ if user_role == "F&A Cell (Nodal)":
                             updated_remarks = append_remark(item['remarks'], "F&A Cell (Status Re-route)", transition_msg)
                             requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"external_destination": new_dest, "remarks": updated_remarks})
                             st.rerun()
-        else:
-            st.info("No external records currently out with tracking stations.")
-
-    # UPDATED: Independent Closure Deck for F&A Cell to archive to APMS
-    with tab_closeout:
-        st.subheader("✅ Uploaded (Paragraph Final Closure & Archiving)")
-        fa_close_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_external=not.is.null&is_closed=eq.0", headers=HEADERS).json()
-        if fa_close_items and isinstance(fa_close_items, list):
-            for item in fa_close_items:
-                close_header = f"🏁 Ready for Closure ➔ Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} | Dept: {item.get('ministry_dept', 'N/A')} | Location: {item['external_destination']}"
-                with st.expander(close_header, expanded=False):
-                    st.write(f"**Subject:** {item['subject']}")
-                    if item['remarks']:
-                        st.text_area("📜 Full Audit Trail History", value=item['remarks'], disabled=True, key=f"fa_close_view_{item['id']}")
                     
-                    final_remark = st.text_input("Add Final Uploading / APMS Closure Note", key=f"fa_close_rem_{item['id']}")
-                    if st.button("🔒 Mark as Uploaded & Archive Record", key=f"fa_close_btn_{item['id']}"):
+                    st.markdown("---")
+                    final_remark = st.text_input("Add Final Closure Note / APMS Notes", key=f"fa_close_rem_{item['id']}")
+                    if st.button("🔒 Permanently Archive & Close File", key=f"fa_close_btn_{item['id']}"):
                         updated_remarks = append_remark(item['remarks'], "F&A Cell (Final Closure)", final_remark) if final_remark.strip() else item['remarks']
                         requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"is_closed": 1, "remarks": updated_remarks})
                         st.success("File permanently archived under Closed status!")
                         st.rerun()
         else:
-            st.info("No external trackers currently available for final closure.")
+            st.info("No external records currently out with tracking stations.")
 
     with tab_edit:
         st.subheader("Modify Live Pipeline Entries")
