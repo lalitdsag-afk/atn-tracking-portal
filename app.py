@@ -231,7 +231,9 @@ if user_role == "F&A Cell (Nodal)":
     fa_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_to_fa=not.is.null&date_sent_to_go=is.null&is_closed=eq.0", headers=HEADERS).json()
     if fa_items and isinstance(fa_items, list):
         for item in fa_items:
-            with st.expander(f"🟡 Reviewing: Report {item['report_no']} [{item['ministry_dept']}]", expanded=True):
+            # FIXED: Added explicit Para No visibility to F&A Review dropdown bar
+            fa_header = f"🟡 Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} | Dept: {item.get('ministry_dept', 'N/A')}"
+            with st.expander(fa_header, expanded=True):
                 st.write(f"**Subject:** {item['subject']}")
                 st.caption(f"🛡️ **Type:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Journey:** {item.get('journey_status', '1st Journey')} | 📅 **Target Upload Date on APMS:** {item.get('target_date_upload', 'N/A')}")
                 if item['remarks']: 
@@ -245,15 +247,14 @@ if user_role == "F&A Cell (Nodal)":
     else:
         st.info("No documents are currently awaiting F&A Verification.")
 
-# --- 2. OPERATIONAL WINGS ROLE (FIXED VISUALS) ---
+# --- 2. OPERATIONAL WINGS ROLE ---
 if user_role in WING_NAMES:
     st.header(f"📥 Action Queue for {user_role} Branch")
     wing_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?assigned_wing=eq.{user_role}&date_sent_to_fa=is.null&is_closed=eq.0", headers=HEADERS).json()
     if wing_items and isinstance(wing_items, list):
         for item in wing_items:
-            # FIXED: Visual identifiers grouped cleanly at the top summary band
-            header_title = f"🔴 Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} | Dept: {item.get('ministry_dept', 'N/A')}"
-            with st.expander(header_title, expanded=True):
+            wing_header = f"🔴 Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} | Dept: {item.get('ministry_dept', 'N/A')}"
+            with st.expander(wing_header, expanded=True):
                 st.write(f"**Subject:** {item['subject']}")
                 st.caption(f"🛡️ **PAC/Non-PAC:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Journey:** {item.get('journey_status', '1st Journey')} | 📅 **Target Upload on APMS:** {item.get('target_date_upload', 'N/A')}")
                 if item['remarks']: 
@@ -273,8 +274,10 @@ if user_role == "Group Officer (GO)":
     go_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_to_go=not.is.null&date_sent_external=is.null&is_closed=eq.0", headers=HEADERS).json()
     if go_items and isinstance(go_items, list):
         for item in go_items:
-            with st.expander(f"🔵 Action Required: Report {item['report_no']}", expanded=True):
-                st.write(f"**Originating Wing:** {item['assigned_wing']} | **Subject:** {item['subject']}")
+            # FIXED: Added explicit Para No visibility to Group Officer (GO) dropdown bars
+            go_header = f"🔵 Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} | Origin: {item.get('assigned_wing', 'N/A')}"
+            with st.expander(go_header, expanded=True):
+                st.write(f"**Subject:** {item['subject']}")
                 st.caption(f"🛡️ **PAC/Non-PAC:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Journey:** {item.get('journey_status', '1st Journey')} | 📅 **Target Upload on APMS:** {item.get('target_date_upload', 'N/A')}")
                 if item['remarks']: 
                     st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"go_hist_{item['id']}")
@@ -294,7 +297,9 @@ if user_role == "Group Officer (GO)":
     ext_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_external=not.is.null&is_closed=eq.0", headers=HEADERS).json()
     if ext_items and isinstance(ext_items, list):
         for item in ext_items:
-            with st.expander(f"📌 Report No. {item['report_no']} ➔ Currently with **{item['external_destination']}**", expanded=False):
+            # FIXED: Added explicit Para No visibility to External pending trackers tracking header
+            ext_header = f"📌 Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} ➔ Handed to: {item['external_destination']}"
+            with st.expander(ext_header, expanded=False):
                 if item['remarks']: 
                     st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"ext_hist_{item['id']}")
                 
