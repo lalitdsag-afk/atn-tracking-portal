@@ -1,4 +1,4 @@
-import streamlit st
+import streamlit as st
 import requests
 from datetime import datetime
 
@@ -247,24 +247,23 @@ if user_role in WING_NAMES:
     else:
         st.info("🎉 Clear queue! No files currently assigned to your wing.")
 
-# --- 3. GROUP OFFICER (GO) ROLE (RESTRUCTURED TAB LAYOUT) ---
+# --- 3. GROUP OFFICER (GO) ROLE (RECONFIGURED COMPACT TABBED INTERFACE) ---
 if user_role == "Group Officer (GO)":
     st.header("👑 Group Officer Desk")
     
-    # OVERHAUL: Separate operational views from universal editing decks
-    go_tab_action, go_tab_edit, go_tab_external = st.tabs([
-        "📥 Pending Actions Queue", 
-        "✏️ Universal ATN Data Correction Deck", 
-        "🌐 Sent Externally Trackers"
+    # Combined Operational Actions & External Trackers into Tab 1, leaving Correction isolated in Tab 2
+    go_tab_action, go_tab_edit = st.tabs([
+        "📥 Pending Actions & Trackers", 
+        "✏️ Universal ATN Data Correction Deck"
     ])
     
-    # TAB 1: OPERATIONAL SIGN-OFFS (Vanishes automatically upon log dispatch)
+    # TAB 1: OPERATIONAL SIGN-OFFS AND EXTERNAL TRACKERS
     with go_tab_action:
-        st.subheader("Incoming Files Awaiting Dispatch Orders")
+        st.subheader("Awaiting Initial Dispatch Signatures")
         go_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_to_go=not.is.null&date_sent_external=is.null&is_closed=eq.0", headers=HEADERS).json()
         if go_items and isinstance(go_items, list):
             for item in go_items:
-                go_header = f"🔵 Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} | Origin: {item.get('assigned_wing', 'N/A')}"
+                go_header = f"🔵 Pending Dispatch ➔ Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} | Origin: {item.get('assigned_wing', 'N/A')}"
                 with st.expander(go_header, expanded=True):
                     st.write(f"**Subject Description:** {item['subject']}")
                     st.caption(f"🛡️ **PAC/Non-PAC:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Journey:** {item.get('journey_status', '1st Journey')} | 📅 **Year:** {item.get('year')}")
@@ -286,12 +285,42 @@ if user_role == "Group Officer (GO)":
                             "remarks": updated_remarks
                         }
                         requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json=dispatch_payload)
-                        st.success("Dispatched! File removed from active action deck.")
+                        st.success("Dispatched! Removed from pending signature stage.")
                         st.rerun()
         else:
-            st.info("🎉 Clear queue! No incoming files awaiting initialization/dispatch signatures.")
+            st.info("🎉 No files awaiting fresh processing signatures.")
 
-    # TAB 2: SEPARATED UNIVERSAL EDITING CELL (Logs every modification explicitly)
+        st.markdown("---")
+        st.subheader("🌐 Active External Trackers (Awaiting Closure)")
+        ext_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_external=not.is.null&is_closed=eq.0", headers=HEADERS).json()
+        if ext_items and isinstance(ext_items, list):
+            for item in ext_items:
+                ext_header = f"📌 Outward Tracker ➔ Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} ➔ Handed to: {item['external_destination']}"
+                with st.expander(ext_header, expanded=False):
+                    if item['remarks']: 
+                        st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"ext_hist_{item['id']}")
+                    
+                    col_up1, col_up2 = st.columns([2, 2])
+                    with col_up1:
+                        new_dest = st.selectbox("Switch Destination Status To:", EXTERNAL_DESTINATIONS, index=EXTERNAL_DESTINATIONS.index(item['external_destination']), key=f"change_dest_val_{item['id']}")
+                        status_remark = st.text_input("Status Transition Note", key=f"status_note_{item['id']}")
+                    with col_up2:
+                        st.write(" ")
+                        st.write(" ")
+                        if st.button(f"Update Status to {new_dest}", key=f"update_status_btn_{item['id']}"):
+                            transition_msg = status_remark if status_remark.strip() else f"Status manually redirected to {new_dest}."
+                            updated_remarks = append_remark(item['remarks'], "Group Officer (Status Re-route)", transition_msg)
+                            requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"external_destination": new_dest, "remarks": updated_remarks})
+                            st.rerun()
+                    
+                    st.markdown("---")
+                    final_remark = st.text_input("Add Final Closure Note (Optional)", key=f"close_rem_{item['id']}")
+                    if st.button("🔒 Permanently Archive & Close File", key=f"close_btn_{item['id']}"):
+                        updated_remarks = append_remark(item['remarks'], "Group Officer (Closure)", final_remark) if final_remark.strip() else item['remarks']
+                        requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"is_closed": 1, "remarks": updated_remarks})
+                        st.rerun()
+
+    # TAB 2: SEPARATED UNIVERSAL EDITING CELL
     with go_tab_edit:
         st.subheader("Administrative Metadata Modification Panel")
         all_active_items = fetch_all_active()
@@ -326,39 +355,8 @@ if user_role == "Group Officer (GO)":
                         "remarks": meta_log
                     }
                     requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{go_target_item['id']}", headers=HEADERS, json=meta_payload)
-                    st.success("Metadata overwrites successfully saved to cloud database and logged in audit history!")
+                    st.success("Metadata updates saved and updated in comments history logs!")
                     st.rerun()
-
-    # TAB 3: SENT EXTERNALLY DECK (Track out-of-house status)
-    with go_tab_external:
-        st.subheader("Active External Trackers (Awaiting Closure)")
-        ext_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_external=not.is.null&is_closed=eq.0", headers=HEADERS).json()
-        if ext_items and isinstance(ext_items, list):
-            for item in ext_items:
-                ext_header = f"📌 Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} ➔ Handed to: {item['external_destination']}"
-                with st.expander(ext_header, expanded=False):
-                    if item['remarks']: 
-                        st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"ext_hist_{item['id']}")
-                    
-                    col_up1, col_up2 = st.columns([2, 2])
-                    with col_up1:
-                        new_dest = st.selectbox("Switch Destination Status To:", EXTERNAL_DESTINATIONS, index=EXTERNAL_DESTINATIONS.index(item['external_destination']), key=f"change_dest_val_{item['id']}")
-                        status_remark = st.text_input("Status Transition Note", key=f"status_note_{item['id']}")
-                    with col_up2:
-                        st.write(" ")
-                        st.write(" ")
-                        if st.button(f"Update Status to {new_dest}", key=f"update_status_btn_{item['id']}"):
-                            transition_msg = status_remark if status_remark.strip() else f"Status manually redirected to {new_dest}."
-                            updated_remarks = append_remark(item['remarks'], "Group Officer (Status Re-route)", transition_msg)
-                            requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"external_destination": new_dest, "remarks": updated_remarks})
-                            st.rerun()
-                    
-                    st.markdown("---")
-                    final_remark = st.text_input("Add Final Closure Note (Optional)", key=f"close_rem_{item['id']}")
-                    if st.button("🔒 Permanently Archive & Close File", key=f"close_btn_{item['id']}"):
-                        updated_remarks = append_remark(item['remarks'], "Group Officer (Closure)", final_remark) if final_remark.strip() else item['remarks']
-                        requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"is_closed": 1, "remarks": updated_remarks})
-                        st.rerun()
 
 # --- 4. GLOBAL DASHBOARD (MASTER BOARD) ---
 if user_role != "DG (Director General)":
