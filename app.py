@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 from datetime import datetime
+import os
 
 # --- SECURE CLOUD CONFIGURATION ---
 try:
@@ -77,7 +78,16 @@ if "authenticated" not in st.session_state:
 if "dg_sub_filter" not in st.session_state:
     st.session_state["dg_sub_filter"] = "All"
 
-# --- SIDEBAR AUTHENTICATION ---
+# --- SIDEBAR BRANDING & AUTHENTICATION ---
+# FIXED: Updated target name string to explicitly load 'cag.png'
+logo_path = "cag.png"
+if os.path.exists(logo_path):
+    st.sidebar.image(logo_path, use_container_width=True)
+else:
+    st.sidebar.markdown("### **🏛️ CAG INDIA**")
+    st.sidebar.caption("Institutional Repository Link Active")
+
+st.sidebar.markdown("---")
 st.sidebar.header("🔐 User Authentication")
 
 if not st.session_state["authenticated"]:
@@ -121,7 +131,6 @@ if user_role == "DG (Director General)":
     st.header("🦅 Director General (DG) Executive Overview")
     counts = get_counts()
     
-    # Clickable Metric Quick Filters Workspace
     st.markdown("##### 🔍 Click on any segment badge to instantly focus the pipeline grid below:")
     m_col1, m_col2, m_col3, m_col4, m_col5, m_col6 = st.columns(6)
     
@@ -167,7 +176,6 @@ if user_role == "DG (Director General)":
             is_fc_dest = row.get('date_sent_external') and row.get('external_destination') == "F&C"
             is_hq_dest = row.get('date_sent_external') and row.get('external_destination') == "HQ"
             
-            # Apply Clickable Metric Filtering Interlock Logic
             sf = st.session_state["dg_sub_filter"]
             if sf == "Pending Wings" and not is_wing: continue
             if sf == "Pending F&A" and not is_fa: continue
@@ -175,7 +183,6 @@ if user_role == "DG (Director General)":
             if sf == "With F&C" and not is_fc_dest: continue
             if sf == "With HQ" and not is_hq_dest: continue
 
-            # Evaluate Explicit Structural Workflow Timestamps
             status = f"🌐 With {row['external_destination']}" if row.get('date_sent_external') else ("👑 With GO" if row.get('date_sent_to_go') else ("💼 With F&A Cell" if row.get('date_sent_to_fa') else f"⏳ With Wing ({row['assigned_wing']})"))
             date_wing_fwd = row.get('date_sent_to_fa') if row.get('date_sent_to_fa') else "Pending"
             
@@ -332,7 +339,6 @@ if user_role == "Group Officer (GO)":
         "✏️ Universal ATN Data Correction Deck"
     ])
     
-    # TAB 1: OPERATIONAL ACTIONS & OUTWARD TRACKERS
     with go_tab_action:
         st.subheader("Awaiting Initial Dispatch Signatures")
         go_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_to_go=not.is.null&date_sent_external=is.null&is_closed=eq.0", headers=HEADERS).json()
@@ -395,7 +401,6 @@ if user_role == "Group Officer (GO)":
                         requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"is_closed": 1, "remarks": updated_remarks})
                         st.rerun()
 
-    # TAB 2: SEPARATED UNIVERSAL EDITING CELL
     with go_tab_edit:
         st.subheader("Administrative Metadata Modification Panel")
         all_active_items = fetch_all_active()
