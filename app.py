@@ -61,6 +61,7 @@ MINISTRIES = ["MoES", "MNRE", "MoEFCC", "DBT", "DST", "DSIR", "DAE", "DoS"]
 EXTERNAL_DESTINATIONS = ["DGA", "F&C", "HQ"]
 PAC_OPTIONS = ["PAC", "Non PAC"]
 JOURNEY_OPTIONS = ["1st Journey", "2nd Journey"]
+YEARS_POOL = ["2022", "2023", "2024", "2025", "2026", "2027", "2028"]
 
 # --- APP LAYOUT ---
 st.set_page_config(page_title="ATN Milestone Portal", layout="wide")
@@ -136,21 +137,21 @@ if user_role == "F&A Cell (Nodal)":
     with st.form("atn_upload_form", clear_on_submit=True):
         col1, col2, col3 = st.columns(3)
         with col1:
-            year = st.text_input("Year", placeholder="e.g., 2025-26")
+            year = st.selectbox("Year", YEARS_POOL)
             report_no = st.text_input("Report No.", placeholder="e.g., 05 of 2026")
             para_no = st.text_input("Para Number", placeholder="e.g., Para 4.1")
         with col2:
             ministry = st.selectbox("Ministry / Department", MINISTRIES)
             wing = st.selectbox("Assign to Wing/Branch", WING_NAMES)
-            pac_status = st.selectbox("Classification Status", PAC_OPTIONS)
+            pac_status = st.selectbox("PAC/Non-PAC", PAC_OPTIONS)
         with col3:
-            journey_status = st.selectbox("Processing Stage", JOURNEY_OPTIONS)
+            journey_status = st.selectbox("Journey", JOURNEY_OPTIONS)
             t_wing = st.date_input("Target Date for Wing Submission")
             t_fa = st.date_input("Target Date for F&A Verification")
             
         col_extra1, col_extra2 = st.columns(2)
         with col_extra1:
-            t_upload = st.date_input("Target Date for Uploading")
+            t_upload = st.date_input("Target Date for Uploading on APMS")
         with col_extra2:
             nodal_remark = st.text_input("Initial Entry Remarks / Special Instructions")
             
@@ -174,7 +175,7 @@ if user_role == "F&A Cell (Nodal)":
         for item in fa_items:
             with st.expander(f"🟡 Reviewing: Report {item['report_no']} [{item['ministry_dept']}]", expanded=True):
                 st.write(f"**Subject:** {item['subject']}")
-                st.caption(f"🛡️ **Type:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Stage:** {item.get('journey_status', '1st Journey')} | 📅 **Target Upload:** {item.get('target_date_upload', 'N/A')}")
+                st.caption(f"🛡️ **Type:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Journey:** {item.get('journey_status', '1st Journey')} | 2014📅 **Target Upload Date on APMS:** {item.get('target_date_upload', 'N/A')}")
                 if item['remarks']: 
                     st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"fa_hist_{item['id']}")
                 sent_date = st.date_input("Select Date Forwarded to GO", key=f"fa_date_{item['id']}")
@@ -194,7 +195,7 @@ if user_role in WING_NAMES:
         for item in wing_items:
             with st.expander(f"🔴 Pending: Report {item['report_no']}", expanded=True):
                 st.write(f"**Subject:** {item['subject']}")
-                st.caption(f"🛡️ **Type:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Stage:** {item.get('journey_status', '1st Journey')} | 📅 **Target Upload:** {item.get('target_date_upload', 'N/A')}")
+                st.caption(f"🛡️ **PAC/Non-PAC:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Journey:** {item.get('journey_status', '1st Journey')} | 📅 **Target Upload on APMS:** {item.get('target_date_upload', 'N/A')}")
                 if item['remarks']: 
                     st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"wing_hist_{item['id']}")
                 sent_date = st.date_input("Select Date Sent to F&A Cell", key=f"wing_date_{item['id']}")
@@ -214,7 +215,7 @@ if user_role == "Group Officer (GO)":
         for item in go_items:
             with st.expander(f"🔵 Action Required: Report {item['report_no']}", expanded=True):
                 st.write(f"**Originating Wing:** {item['assigned_wing']} | **Subject:** {item['subject']}")
-                st.caption(f"🛡️ **Type:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Stage:** {item.get('journey_status', '1st Journey')} | 📅 **Target Upload:** {item.get('target_date_upload', 'N/A')}")
+                st.caption(f"🛡️ **PAC/Non-PAC:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Journey:** {item.get('journey_status', '1st Journey')} | 📅 **Target Upload on APMS:** {item.get('target_date_upload', 'N/A')}")
                 if item['remarks']: 
                     st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"go_hist_{item['id']}")
                 col_d1, col_d2 = st.columns(2)
@@ -268,10 +269,19 @@ if all_active and isinstance(all_active, list):
     for row in all_active:
         status = f"🌐 With {row['external_destination']}" if row.get('date_sent_external') else ("👑 With GO" if row.get('date_sent_to_go') else ("💼 With F&A Cell" if row.get('date_sent_to_fa') else "⏳ With Wing"))
         display_data.append({
-            "Year": row['year'], "Report No": row['report_no'], "Para": row['chapter_number'], 
-            "Classification": row.get('pac_status', 'Non PAC'), "Journey": row.get('journey_status', '1st Journey'),
-            "Target Upload Date": row.get('target_date_upload', 'N/A'), "Ministry/Dept": row['ministry_dept'], 
-            "Handling Branch": row['assigned_wing'], "Current Station Status": status, "Latest Remarks Log": row['remarks']
+            "Year": row['year'], 
+            "Report No": row['report_no'], 
+            "Ministry Dept": row['ministry_dept'],
+            "Para No": row['chapter_number'], 
+            "Subject": row['subject'],
+            "Target Date for Wings": row['target_date_wing'],
+            "Target Date for F&A": row['target_date_fa'],
+            "Target Date of Uploading on APMS": row.get('target_date_upload', 'N/A'),
+            "Journey": row.get('journey_status', '1st Journey'),
+            "PAC/Non-PAC": row.get('pac_status', 'Non PAC'),
+            "Handling Branch": row['assigned_wing'], 
+            "Current Station Status": status, 
+            "Latest Remarks Log": row['remarks']
         })
     st.table(display_data)
 else:
