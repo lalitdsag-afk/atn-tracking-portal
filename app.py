@@ -1,4 +1,4 @@
-import streamlit as st
+import streamlit st
 import requests
 from datetime import datetime
 
@@ -247,94 +247,118 @@ if user_role in WING_NAMES:
     else:
         st.info("🎉 Clear queue! No files currently assigned to your wing.")
 
-# --- 3. GROUP OFFICER (GO) ROLE ---
+# --- 3. GROUP OFFICER (GO) ROLE (RESTRUCTURED TAB LAYOUT) ---
 if user_role == "Group Officer (GO)":
-    st.header("👑 GO Final Action & Closure Deck")
-    go_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_to_go=not.is.null&date_sent_external=is.null&is_closed=eq.0", headers=HEADERS).json()
-    if go_items and isinstance(go_items, list):
-        for item in go_items:
-            go_header = f"🔵 Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} | Origin: {item.get('assigned_wing', 'N/A')}"
-            with st.expander(go_header, expanded=True):
-                
-                # SEPARATED: Core metadata display
-                st.write(f"**Current Subject:** {item['subject']}")
-                st.caption(f"🛡️ **PAC/Non-PAC:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Journey:** {item.get('journey_status', '1st Journey')} | 📅 **Year:** {item.get('year')}")
-                
-                # SEPARATED: Collapsible Expander for Editing Metadata
-                with st.expander("✏️ Edit / Correction Mode (Click to Modify Record)"):
-                    gov_c1, gov_c2, gov_c3 = st.columns(3)
-                    with gov_c1:
-                        go_opt_year = st.selectbox("Year", YEARS_POOL, index=YEARS_POOL.index(item['year']) if item['year'] in YEARS_POOL else 0, key=f"go_yr_{item['id']}")
-                        go_opt_rep = st.text_input("Report No.", value=item['report_no'], key=f"go_rp_{item['id']}")
-                    with gov_c2:
-                        go_opt_para = st.text_input("Para Number", value=item['chapter_number'], key=f"go_pr_{item['id']}")
-                        go_opt_pac = st.selectbox("PAC/Non-PAC", PAC_OPTIONS, index=PAC_OPTIONS.index(item.get('pac_status', 'Non PAC')) if item.get('pac_status') in PAC_OPTIONS else 0, key=f"go_pc_{item['id']}")
-                    with gov_c3:
-                        go_opt_journ = st.selectbox("Journey", JOURNEY_OPTIONS, index=JOURNEY_OPTIONS.index(item.get('journey_status', '1st Journey')) if item.get('journey_status') in JOURNEY_OPTIONS else 0, key=f"go_jr_{item['id']}")
+    st.header("👑 Group Officer Desk")
+    
+    # OVERHAUL: Separate operational views from universal editing decks
+    go_tab_action, go_tab_edit, go_tab_external = st.tabs([
+        "📥 Pending Actions Queue", 
+        "✏️ Universal ATN Data Correction Deck", 
+        "🌐 Sent Externally Trackers"
+    ])
+    
+    # TAB 1: OPERATIONAL SIGN-OFFS (Vanishes automatically upon log dispatch)
+    with go_tab_action:
+        st.subheader("Incoming Files Awaiting Dispatch Orders")
+        go_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_to_go=not.is.null&date_sent_external=is.null&is_closed=eq.0", headers=HEADERS).json()
+        if go_items and isinstance(go_items, list):
+            for item in go_items:
+                go_header = f"🔵 Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} | Origin: {item.get('assigned_wing', 'N/A')}"
+                with st.expander(go_header, expanded=True):
+                    st.write(f"**Subject Description:** {item['subject']}")
+                    st.caption(f"🛡️ **PAC/Non-PAC:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Journey:** {item.get('journey_status', '1st Journey')} | 📅 **Year:** {item.get('year')}")
                     
-                    go_opt_sub = st.text_area("Subject Description", value=item['subject'], key=f"go_sb_{item['id']}")
+                    if item['remarks']: 
+                        st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"go_action_hist_{item['id']}")
                     
-                    if st.button("💾 Save Metadata Updates", key=f"go_update_meta_{item['id']}"):
-                        meta_log = append_remark(item['remarks'], "Group Officer", "Metadata parameters modified via dedicated correction panel.")
-                        meta_payload = {
-                            "year": go_opt_year, "report_no": go_opt_rep, "chapter_number": go_opt_para,
-                            "pac_status": go_opt_pac, "journey_status": go_opt_journ, "subject": go_opt_sub,
-                            "remarks": meta_log
+                    st.markdown("##### 🚀 Log External Dispatch")
+                    col_d1, col_d2 = st.columns(2)
+                    with col_d1: ext_date = st.date_input("Date Dispatched Outward", key=f"go_date_{item['id']}")
+                    with col_d2: dest = st.selectbox("External Destination", EXTERNAL_DESTINATIONS, key=f"go_dest_{item['id']}")
+                    go_remark = st.text_input("Add GO Approval Remarks", key=f"go_rem_{item['id']}")
+                    
+                    if st.button("Log Dispatch & Route Outward", key=f"go_btn_{item['id']}"):
+                        updated_remarks = append_remark(item['remarks'], "Group Officer (Dispatch Sign-off)", go_remark) if go_remark.strip() else item['remarks']
+                        dispatch_payload = {
+                            "date_sent_external": str(ext_date), 
+                            "external_destination": dest, 
+                            "remarks": updated_remarks
                         }
-                        requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json=meta_payload)
-                        st.success("Metadata overwrites applied successfully!")
+                        requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json=dispatch_payload)
+                        st.success("Dispatched! File removed from active action deck.")
                         st.rerun()
-                
-                st.markdown("---")
-                # SEPARATED: Operational Workflow Forms (Dispatch)
-                st.markdown("##### 🚀 Execution Actions (Log Dispatch)")
-                if item['remarks']: 
-                    st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"go_hist_{item['id']}")
-                
-                col_d1, col_d2 = st.columns(2)
-                with col_d1: ext_date = st.date_input("Date Dispatched Outward", key=f"go_date_{item['id']}")
-                with col_d2: dest = st.selectbox("External Destination", EXTERNAL_DESTINATIONS, key=f"go_dest_{item['id']}")
-                go_remark = st.text_input("Add GO Approval Remarks", key=f"go_rem_{item['id']}")
-                
-                if st.button("Log External Dispatch & Route Outward", key=f"go_btn_{item['id']}"):
-                    updated_remarks = append_remark(item['remarks'], "Group Officer", go_remark) if go_remark.strip() else item['remarks']
-                    dispatch_payload = {
-                        "date_sent_external": str(ext_date), "external_destination": dest, "remarks": updated_remarks
-                    }
-                    requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json=dispatch_payload)
-                    st.rerun()
-    else:
-        st.info("No incoming files awaiting initialization/dispatch signatures.")
+        else:
+            st.info("🎉 Clear queue! No incoming files awaiting initialization/dispatch signatures.")
 
-    st.markdown("---")
-    st.subheader("🌐 Active External Trackers (Awaiting Closure)")
-    ext_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_external=not.is.null&is_closed=eq.0", headers=HEADERS).json()
-    if ext_items and isinstance(ext_items, list):
-        for item in ext_items:
-            ext_header = f"📌 Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} ➔ Handed to: {item['external_destination']}"
-            with st.expander(ext_header, expanded=False):
-                if item['remarks']: 
-                    st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"ext_hist_{item['id']}")
+    # TAB 2: SEPARATED UNIVERSAL EDITING CELL (Logs every modification explicitly)
+    with go_tab_edit:
+        st.subheader("Administrative Metadata Modification Panel")
+        all_active_items = fetch_all_active()
+        if not all_active_items:
+            st.info("No active pipeline files available to correct.")
+        else:
+            go_edit_options = {f"Para: {x['chapter_number']} | Rep: {x['report_no']} | Wing: {x['assigned_wing']} (ID: {x['id']})": x for x in all_active_items}
+            selected_edit_label = st.selectbox("Select Target File for Correction:", list(go_edit_options.keys()), key="go_universal_select")
+            go_target_item = go_edit_options[selected_edit_label]
+            
+            with st.form("go_universal_edit_form"):
+                gov_c1, gov_c2, gov_c3 = st.columns(3)
+                with gov_c1:
+                    go_opt_year = st.selectbox("Year", YEARS_POOL, index=YEARS_POOL.index(go_target_item['year']) if go_target_item['year'] in YEARS_POOL else 0)
+                    go_opt_rep = st.text_input("Report No.", value=go_target_item['report_no'])
+                with gov_c2:
+                    go_opt_para = st.text_input("Para Number", value=go_target_item['chapter_number'])
+                    go_opt_pac = st.selectbox("PAC/Non-PAC", PAC_OPTIONS, index=PAC_OPTIONS.index(go_target_item.get('pac_status', 'Non PAC')) if go_target_item.get('pac_status') in PAC_OPTIONS else 0)
+                with gov_c3:
+                    go_opt_journ = st.selectbox("Journey", JOURNEY_OPTIONS, index=JOURNEY_OPTIONS.index(go_target_item.get('journey_status', '1st Journey')) if go_target_item.get('journey_status') in JOURNEY_OPTIONS else 0)
                 
-                col_up1, col_up2 = st.columns([2, 2])
-                with col_up1:
-                    new_dest = st.selectbox("Switch Destination Status To:", EXTERNAL_DESTINATIONS, index=EXTERNAL_DESTINATIONS.index(item['external_destination']), key=f"change_dest_val_{item['id']}")
-                    status_remark = st.text_input("Status Transition Note", key=f"status_note_{item['id']}")
-                with col_up2:
-                    st.write(" ")
-                    st.write(" ")
-                    if st.button(f"Update Status to {new_dest}", key=f"update_status_btn_{item['id']}"):
-                        transition_msg = status_remark if status_remark.strip() else f"Status manually redirected to {new_dest}."
-                        updated_remarks = append_remark(item['remarks'], "Group Officer (Status Re-route)", transition_msg)
-                        requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"external_destination": new_dest, "remarks": updated_remarks})
-                        st.rerun()
+                go_opt_sub = st.text_area("Subject Description", value=go_target_item['subject'])
+                go_correction_reason = st.text_input("Modification Log Summary Note", placeholder="Explain the reason for changing these parameters...")
                 
-                st.markdown("---")
-                final_remark = st.text_input("Add Final Closure Note (Optional)", key=f"close_rem_{item['id']}")
-                if st.button("🔒 Permanently Archive & Close File", key=f"close_btn_{item['id']}"):
-                    updated_remarks = append_remark(item['remarks'], "Group Officer (Closure)", final_remark) if final_remark.strip() else item['remarks']
-                    requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"is_closed": 1, "remarks": updated_remarks})
+                if st.form_submit_button("💾 Save Changes & Update Audit Logs"):
+                    log_reason_text = go_correction_reason.strip() if go_correction_reason.strip() else "Record details modified by Group Officer."
+                    meta_log = append_remark(go_target_item['remarks'], "Group Officer (Metadata Correction)", log_reason_text)
+                    
+                    meta_payload = {
+                        "year": go_opt_year, "report_no": go_opt_rep, "chapter_number": go_opt_para,
+                        "pac_status": go_opt_pac, "journey_status": go_opt_journ, "subject": go_opt_sub,
+                        "remarks": meta_log
+                    }
+                    requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{go_target_item['id']}", headers=HEADERS, json=meta_payload)
+                    st.success("Metadata overwrites successfully saved to cloud database and logged in audit history!")
                     st.rerun()
+
+    # TAB 3: SENT EXTERNALLY DECK (Track out-of-house status)
+    with go_tab_external:
+        st.subheader("Active External Trackers (Awaiting Closure)")
+        ext_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_external=not.is.null&is_closed=eq.0", headers=HEADERS).json()
+        if ext_items and isinstance(ext_items, list):
+            for item in ext_items:
+                ext_header = f"📌 Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} ➔ Handed to: {item['external_destination']}"
+                with st.expander(ext_header, expanded=False):
+                    if item['remarks']: 
+                        st.text_area("📜 Audit Trail History", value=item['remarks'], disabled=True, key=f"ext_hist_{item['id']}")
+                    
+                    col_up1, col_up2 = st.columns([2, 2])
+                    with col_up1:
+                        new_dest = st.selectbox("Switch Destination Status To:", EXTERNAL_DESTINATIONS, index=EXTERNAL_DESTINATIONS.index(item['external_destination']), key=f"change_dest_val_{item['id']}")
+                        status_remark = st.text_input("Status Transition Note", key=f"status_note_{item['id']}")
+                    with col_up2:
+                        st.write(" ")
+                        st.write(" ")
+                        if st.button(f"Update Status to {new_dest}", key=f"update_status_btn_{item['id']}"):
+                            transition_msg = status_remark if status_remark.strip() else f"Status manually redirected to {new_dest}."
+                            updated_remarks = append_remark(item['remarks'], "Group Officer (Status Re-route)", transition_msg)
+                            requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"external_destination": new_dest, "remarks": updated_remarks})
+                            st.rerun()
+                    
+                    st.markdown("---")
+                    final_remark = st.text_input("Add Final Closure Note (Optional)", key=f"close_rem_{item['id']}")
+                    if st.button("🔒 Permanently Archive & Close File", key=f"close_btn_{item['id']}"):
+                        updated_remarks = append_remark(item['remarks'], "Group Officer (Closure)", final_remark) if final_remark.strip() else item['remarks']
+                        requests.patch(f"{SUPABASE_URL}/rest/v1/atns?id=eq.{item['id']}", headers=HEADERS, json={"is_closed": 1, "remarks": updated_remarks})
+                        st.rerun()
 
 # --- 4. GLOBAL DASHBOARD (MASTER BOARD) ---
 if user_role != "DG (Director General)":
