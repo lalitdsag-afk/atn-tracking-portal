@@ -133,7 +133,6 @@ if user_role == "DG (Director General)":
 
 # --- 1. F&A CELL (TRACKING NODAL) ROLE ---
 if user_role == "F&A Cell (Nodal)":
-    # Tab layout to separate entry from modifications
     tab_upload, tab_edit = st.tabs(["📋 Upload New ATN Record", "✏️ Edit Existing ATN Records"])
     
     with tab_upload:
@@ -179,12 +178,10 @@ if user_role == "F&A Cell (Nodal)":
         if not active_items:
             st.info("No active records available to edit.")
         else:
-            # Display dropdown to choose which record needs correction
             item_options = {f"ID {x['id']} | Rep: {x['report_no']} | Para: {x['chapter_number']} | Wing: {x['assigned_wing']}": x for x in active_items}
             selected_label = st.selectbox("Select ATN Entry to Correct:", list(item_options.keys()))
             target_item = item_options[selected_label]
             
-            # Form prepopulated with current information from Supabase
             with st.form("atn_edit_form"):
                 ec1, ec2, ec3 = st.columns(3)
                 with ec1:
@@ -198,7 +195,6 @@ if user_role == "F&A Cell (Nodal)":
                 with ec3:
                     e_journey = st.selectbox("Journey", JOURNEY_OPTIONS, index=JOURNEY_OPTIONS.index(target_item.get('journey_status', '1st Journey')) if target_item.get('journey_status') in JOURNEY_OPTIONS else 0)
                     
-                    # Date formatting handling
                     def parse_dt(dt_str):
                         try: return datetime.strptime(dt_str, "%Y-%m-%d").date()
                         except: return datetime.today().date()
@@ -215,7 +211,6 @@ if user_role == "F&A Cell (Nodal)":
                 e_subject = st.text_area("Subject Description", value=target_item['subject'])
                 
                 if st.form_submit_button("💾 Save & Overwrite Cloud Record"):
-                    # Add trace log entry
                     log_text = correction_reason.strip() if correction_reason.strip() else "Record details modified by Nodal Officer."
                     updated_remarks = append_remark(target_item['remarks'], "F&A Cell (Data Correction)", log_text)
                     
@@ -226,7 +221,6 @@ if user_role == "F&A Cell (Nodal)":
                         "subject": e_subject, "remarks": updated_remarks
                     }
                     
-                    # PATCH request to rewrite specified ID row
                     patch_url = f"{SUPABASE_URL}/rest/v1/atns?id=eq.{target_item['id']}"
                     requests.patch(patch_url, headers=HEADERS, json=update_payload)
                     st.success("Cloud record updated successfully!")
@@ -251,13 +245,15 @@ if user_role == "F&A Cell (Nodal)":
     else:
         st.info("No documents are currently awaiting F&A Verification.")
 
-# --- 2. OPERATIONAL WINGS ROLE ---
+# --- 2. OPERATIONAL WINGS ROLE (FIXED VISUALS) ---
 if user_role in WING_NAMES:
     st.header(f"📥 Action Queue for {user_role} Branch")
     wing_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?assigned_wing=eq.{user_role}&date_sent_to_fa=is.null&is_closed=eq.0", headers=HEADERS).json()
     if wing_items and isinstance(wing_items, list):
         for item in wing_items:
-            with st.expander(f"🔴 Pending: Report {item['report_no']}", expanded=True):
+            # FIXED: Visual identifiers grouped cleanly at the top summary band
+            header_title = f"🔴 Para No: {item.get('chapter_number', 'N/A')} | Report No: {item.get('report_no', 'N/A')} | Dept: {item.get('ministry_dept', 'N/A')}"
+            with st.expander(header_title, expanded=True):
                 st.write(f"**Subject:** {item['subject']}")
                 st.caption(f"🛡️ **PAC/Non-PAC:** {item.get('pac_status', 'Non PAC')} | 🛤️ **Journey:** {item.get('journey_status', '1st Journey')} | 📅 **Target Upload on APMS:** {item.get('target_date_upload', 'N/A')}")
                 if item['remarks']: 
