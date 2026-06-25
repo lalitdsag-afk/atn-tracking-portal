@@ -783,57 +783,18 @@ if user_role != "DG (Director General)":
                 st.info("No active tracking paragraphs registered under this matrix criteria segment.")
                 return
             
-            # Multi-level sorting: Alphabetically by Ministry Dept, then chronologically by Wings target due date
+            # --- SORTING LOGIC ADDED HERE ---
+            # Sorts primary elements alphabetically by 'Ministry Dept', then chronologically by 'Target Date for Wings'
             sorted_data = sorted(
                 data_list, 
                 key=lambda x: (x["Ministry Dept"], x["Target Date for Wings"])
             )
             
-            # Compile raw HTML rows to eliminate the automatic "hover-to-copy" icon constraint entirely
-            html_rows = ""
+            indexed_data = []
             for index, item in enumerate(sorted_data, start=1):
-                html_rows += f"""
-                <tr style="border-bottom: 1px solid #e6e6e6;">
-                    <td style="padding: 8px; text-align: left;">{index}</td>
-                    <td style="padding: 8px; text-align: left;">{item['Year']}</td>
-                    <td style="padding: 8px; text-align: left;">{item['Report No']}</td>
-                    <td style="padding: 8px; text-align: left;">{item['Ministry Dept']}</td>
-                    <td style="padding: 8px; text-align: left;">{item['Para No']}</td>
-                    <td style="padding: 8px; text-align: left; max-width: 400px; word-wrap: break-word;">{item['Subject']}</td>
-                    <td style="padding: 8px; text-align: left;">{item['Target Date for Wings']}</td>
-                    <td style="padding: 8px; text-align: left;">{item['Target Date for F&A']}</td>
-                    <td style="padding: 8px; text-align: left;">{item['Target Date of Uploading on APMS']}</td>
-                    <td style="padding: 8px; text-align: left;">{item['Handling Branch']}</td>
-                    <td style="padding: 8px; text-align: left;">{item['Current Station Status']}</td>
-                </tr>
-                """
-            
-            html_table = f"""
-            <div style="overflow-x: auto; width: 100%;">
-                <table style="width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px; color: #333;">
-                    <thead>
-                        <tr style="background-color: #f0f2f6; border-bottom: 2px solid #ccc;">
-                            <th style="padding: 10px; text-align: left; font-weight: bold;">S.No.</th>
-                            <th style="padding: 10px; text-align: left; font-weight: bold;">Year</th>
-                            <th style="padding: 10px; text-align: left; font-weight: bold;">Report No</th>
-                            <th style="padding: 10px; text-align: left; font-weight: bold;">Ministry Dept</th>
-                            <th style="padding: 10px; text-align: left; font-weight: bold;">Para No</th>
-                            <th style="padding: 10px; text-align: left; font-weight: bold;">Subject</th>
-                            <th style="padding: 10px; text-align: left; font-weight: bold;">Target Date for Wings</th>
-                            <th style="padding: 10px; text-align: left; font-weight: bold;">Target Date for F&A</th>
-                            <th style="padding: 10px; text-align: left; font-weight: bold;">Target Date of Uploading on APMS</th>
-                            <th style="padding: 10px; text-align: left; font-weight: bold;">Handling Branch</th>
-                            <th style="padding: 10px; text-align: left; font-weight: bold;">Current Station Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {html_rows}
-                    </tbody>
-                </table>
-            </div>
-            """
-            st.markdown(html_table, unsafe_allow_html=True)
-            st.write("") # Clean spacer
+                indexed_data.append({"S.No.": index, **item})
+                
+            st.table(indexed_data)
 
         # Render 4 Grid Segments clearly separated
         st.markdown("## 🛤️ 1st Journey Trackers")
