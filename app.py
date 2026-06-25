@@ -776,15 +776,16 @@ if user_role != "DG (Director General)":
             elif journey == "2nd Journey" and pac == "Non PAC":
                 j2_non_pac.append(table_entry)
 
-        # Function to safely handle structural nested layout displays with specific sorting parameters
+        # Function to safely handle structural display metrics with clear sorting parameters
         def display_master_table(data_list, title_header):
             st.markdown(f"### {title_header}")
+            
+            # --- MODIFIED SYSTEM WARNING AND RETURN STATE AS REQUESTED ---
             if not data_list:
-                st.info("No active tracking paragraphs registered under this matrix criteria segment.")
+                st.info("🎉 No Pending ATN")
                 return
             
-            # --- SORTING LOGIC ADDED HERE ---
-            # Sorts primary elements alphabetically by 'Ministry Dept', then chronologically by 'Target Date for Wings'
+            # Sort elements alphabetically by 'Ministry Dept', then chronologically by 'Target Date for Wings'
             sorted_data = sorted(
                 data_list, 
                 key=lambda x: (x["Ministry Dept"], x["Target Date for Wings"])
