@@ -165,6 +165,12 @@ def fetch_wing_comms_by_role(role_name):
         return {"email": res[0].get('email'), "mobile": res[0].get('mobile')}
     return {"email": None, "mobile": None}
 
+def delete_atn_record(atn_id):
+    """Hard-deletes an ATN tracking entry entirely from the primary cluster partition"""
+    url = f"{SUPABASE_URL}/rest/v1/atns?id=eq.{atn_id}"
+    response = requests.delete(url, headers=HEADERS)
+    return response.status_code in [200, 204]
+
 def append_remark(old_remarks, role, new_text):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
     header = f"[{role} - {timestamp}]: "
@@ -304,6 +310,7 @@ if user_role == "DG (Director General)":
     all_active = fetch_all_active(ministry=filter_ministry, wing=filter_wing)
     if all_active and isinstance(all_active, list):
         dg_display_data = []
+        s_no = 1
         for row in all_active:
             is_wing = not row.get('date_sent_to_fa')
             is_fa = row.get('date_sent_to_fa') and not row.get('date_sent_to_go')
@@ -325,6 +332,7 @@ if user_role == "DG (Director General)":
             date_sent_hq = row.get('date_sent_external') if is_hq_dest else "N/A"
             
             dg_display_data.append({
+                "S.No.": s_no,
                 "Year": row['year'], 
                 "Report No": row['report_no'], 
                 "Ministry Dept": row['ministry_dept'],
@@ -341,6 +349,7 @@ if user_role == "DG (Director General)":
                 "Date Sent to HQ": date_sent_hq,
                 "Current Station Status": status
             })
+            s_no += 1
             
         if dg_display_data:
             st.table(dg_display_data)
@@ -442,7 +451,6 @@ if user_role == "F&A Cell (Nodal)":
         fa_ext_items = requests.get(f"{SUPABASE_URL}/rest/v1/atns?date_sent_external=not.is.null&is_closed=eq.0", headers={**HEADERS, "Content-Type": "application/json"}).json()
         if fa_ext_items and isinstance(fa_ext_items, list):
             for item in fa_ext_items:
-                # UPDATED ROW DISPLAY LAYOUT FOR THE F&A NODAL EXTERNAL TRACKER EXPANDER HEADER
                 ext_header = f"📌 Para No: {item.get('chapter_number', 'N/A')} | Rep No: {item.get('report_no', 'N/A')} | Sub: {item.get('subject', 'N/A')[:45]}... < Dept: {item.get('ministry_dept', 'N/A')}"
                 with st.expander(ext_header, expanded=False):
                     
@@ -571,9 +579,10 @@ if user_role in WING_NAMES:
 if user_role == "Group Officer (GO)":
     st.header("👑 Group Officer Desk")
     
-    go_tab_action, go_tab_edit = st.tabs([
+    go_tab_action, go_tab_edit, go_tab_purge = st.tabs([
         "📥 Pending Actions & Trackers", 
-        "✏️ Universal ATN Data Correction Deck"
+        "✏️ Universal ATN Data Correction Deck",
+        "🚨 Delete Override Management"
     ])
     
     with go_tab_action:
@@ -686,17 +695,66 @@ if user_role == "Group Officer (GO)":
                     st.success("Metadata updates saved!")
                     st.rerun()
 
+    with go_tab_purge:
+        st.subheader("🚨 Administrative Override: Delete ATN Record")
+        st.markdown("⚠️ **Warning:** Deleting an ATN record is permanent. It completely wipes out metadata logs and removes linked workspace assets at any stage of development.")
+        
+        all_purgeable_items = fetch_all_active()
+        if not all_purgeable_items:
+            st.info("No active files available inside tracking metrics to remove.")
+        else:
+            purge_options = {f"ID: {x['id']} | Rep: {x['report_no']} | Para: {x['chapter_number']} | Wing: {x['assigned_wing']}": x for x in all_purgeable_items}
+            selected_purge_label = st.selectbox("Select Target ATN to Permanently Erase:", list(purge_options.keys()))
+            purge_target = purge_options[selected_purge_label]
+            
+            st.warning(f"Confirm choice to delete Paragraph: **{purge_target['chapter_number']}** under Report **{purge_target['report_no']}**.")
+            security_check = st.text_input("Type 'DELETE' to confirm authorization parameters:")
+            
+            if st.button("💥 Execute Absolute Delete Override"):
+                if security_check.strip() == "DELETE":
+                    # Discard associated cloud files clean-up cascade
+                    delete_storage_file(f"fa_upload_{purge_target['id']}.docx")
+                    delete_storage_file(f"wing_upload_{purge_target['id']}.docx")
+                    
+                    # Delete the Database Row Record
+                    if delete_atn_record(purge_target['id']):
+                        st.success("ATN Record and files successfully deleted from infrastructure!")
+                        st.rerun()
+                    else:
+                        st.error("Failed to delete record from the cloud server.")
+                else:
+                    st.error("Invalid verification confirmation text. Type 'DELETE' to unlock.")
+
 # --- 4. GLOBAL DASHBOARD (MASTER BOARD FOR OTHER ROLES) ---
 if user_role != "DG (Director General)":
     st.markdown("---")
     st.header("📊 Live Active Pipeline (Master Board)")
+    
+    # Secondary Dropdown Explorers for Global Dashboard users
+    st.subheader("🔍 Filter Options")
+    f_col1, f_col2 = st.columns(2)
+    with f_col1:
+        filter_ministry = st.selectbox("Master Filter by Ministry/Dept", ["All"] + MINISTRIES, key="global_min_sel")
+    with f_col2:
+        filter_wing = st.selectbox("Master Filter by Handling Wing", ["All"] + WING_NAMES, key="global_wing_sel")
 
     all_active = fetch_all_active(ministry=filter_ministry, wing=filter_wing)
+    
     if all_active and isinstance(all_active, list):
-        display_data = []
+        # 4 Segregated Categories Lists
+        j1_pac = []
+        j1_non_pac = []
+        j2_pac = []
+        j2_non_pac = []
+        
+        # Sort rows into relevant operational buckets
         for row in all_active:
             status = f"🌐 With {row['external_destination']}" if row.get('date_sent_external') else ("👑 With GO" if row.get('date_sent_to_go') else ("💼 With F&A Cell" if row.get('date_sent_to_fa') else "⏳ With Wing"))
-            display_data.append({
+            
+            journey = row.get('journey_status', '1st Journey')
+            pac = row.get('pac_status', 'Non PAC')
+            
+            table_entry = {
                 "Year": row['year'], 
                 "Report No": row['report_no'], 
                 "Ministry Dept": row['ministry_dept'],
@@ -705,12 +763,48 @@ if user_role != "DG (Director General)":
                 "Target Date for Wings": row['target_date_wing'],
                 "Target Date for F&A": row['target_date_fa'],
                 "Target Date of Uploading on APMS": row.get('target_date_upload', 'N/A'),
-                "Journey": row.get('journey_status', '1st Journey'),
-                "PAC/Non-PAC": row.get('pac_status', 'Non PAC'),
                 "Handling Branch": row['assigned_wing'], 
-                "Current Station Status": status, 
-                "Latest Remarks Log": row['remarks']
-            })
-        st.table(display_data)
+                "Current Station Status": status
+            }
+            
+            if journey == "1st Journey" and pac == "PAC":
+                j1_pac.append(table_entry)
+            elif journey == "1st Journey" and pac == "Non PAC":
+                j1_non_pac.append(table_entry)
+            elif journey == "2nd Journey" and pac == "PAC":
+                j2_pac.append(table_entry)
+            elif journey == "2nd Journey" and pac == "Non PAC":
+                j2_non_pac.append(table_entry)
+
+        # Function to safely handle structural nested layout displays with specific sorting parameters
+        def display_master_table(data_list, title_header):
+            st.markdown(f"### {title_header}")
+            if not data_list:
+                st.info("No active tracking paragraphs registered under this matrix criteria segment.")
+                return
+            
+            # --- SORTING LOGIC ADDED HERE ---
+            # Sorts primary elements alphabetically by 'Ministry Dept', then chronologically by 'Target Date for Wings'
+            sorted_data = sorted(
+                data_list, 
+                key=lambda x: (x["Ministry Dept"], x["Target Date for Wings"])
+            )
+            
+            indexed_data = []
+            for index, item in enumerate(sorted_data, start=1):
+                indexed_data.append({"S.No.": index, **item})
+                
+            st.table(indexed_data)
+
+        # Render 4 Grid Segments clearly separated
+        st.markdown("## 🛤️ 1st Journey Trackers")
+        display_master_table(j1_pac, "🛡️ 1st Journey — PAC")
+        display_master_table(j1_non_pac, "📄 1st Journey — Non-PAC")
+        
+        st.markdown("---")
+        st.markdown("## 🛤️ 2nd Journey Trackers")
+        display_master_table(j2_pac, "🛡️ 2nd Journey — PAC")
+        display_master_table(j2_non_pac, "📄 2nd Journey — Non-PAC")
+        
     else:
         st.info("The monitoring grid is currently empty. No active items match the search filters.")
