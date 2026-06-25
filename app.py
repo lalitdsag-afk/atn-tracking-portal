@@ -776,17 +776,17 @@ if user_role != "DG (Director General)":
             elif journey == "2nd Journey" and pac == "Non PAC":
                 j2_non_pac.append(table_entry)
 
-        # Function to safely handle structural nested layout displays with specific case-insensitive sorting parameters
+        # Function to safely handle structural nested layout displays with specific sorting parameters
         def display_master_table(data_list, title_header):
             st.markdown(f"### {title_header}")
             if not data_list:
                 st.info("No active tracking paragraphs registered under this matrix criteria segment.")
                 return
             
-            # Case-insensitive multi-level sorting: Ministry Dept (A-Z) -> Target Date for Wings (Chronological)
+            # Multi-level sorting: Alphabetically by Ministry Dept, then chronologically by Wings target due date
             sorted_data = sorted(
                 data_list, 
-                key=lambda x: (x["Ministry Dept"].lower(), x["Target Date for Wings"])
+                key=lambda x: (x["Ministry Dept"], x["Target Date for Wings"])
             )
             
             # Compile raw HTML rows to eliminate the automatic "hover-to-copy" icon constraint entirely
