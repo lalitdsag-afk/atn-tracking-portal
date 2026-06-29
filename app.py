@@ -274,7 +274,6 @@ def render_sar_html_table(all_records, is_editable=False):
     """Compiles a case-insensitive alphabetized table for SAR tracking metrics without hover copy tags"""
     sar_data_pool = []
     for item in all_records:
-        # Extract parsed or structural fallback dictionary representations
         raw_meta = item.get("sar_meta")
         if isinstance(raw_meta, str):
             try: meta = json.loads(raw_meta)
@@ -289,7 +288,7 @@ def render_sar_html_table(all_records, is_editable=False):
         st.info("🎉 No Pending ATNs")
         return
         
-    # Case-insensitive alphabetic sorting execution by Ministry Dept name structure
+    # Case-insensitive alphabetical sort by Ministry Dept structure
     sorted_sar = sorted(sar_data_pool, key=lambda x: x["item_ref"].get("ministry_dept", "").lower())
     
     html_rows = ""
@@ -735,7 +734,7 @@ if user_role == "Group Officer (GO)":
         st.subheader("🛡️ Separate Audit Report (SAR) Control Console")
         all_records_for_sar = fetch_all_active()
         
-        # Display the live master tracker spreadsheet at the top
+        # Render dynamic master tracking spreadsheet at top
         render_sar_html_table(all_records_for_sar, is_editable=True)
         st.markdown("---")
         st.subheader("✏️ Update SAR Record Specific Parameters")
@@ -747,7 +746,7 @@ if user_role == "Group Officer (GO)":
             target_label = st.selectbox("Select Target Entry to Modify:", list(sar_selector.keys()))
             sar_target = sar_selector[target_label]
             
-            # Safely compile the background JSON state map
+            # Safely compile JSON background state map structure
             raw_json = sar_target.get("sar_meta")
             if isinstance(raw_json, str):
                 try: current_meta = json.loads(raw_json)
@@ -771,16 +770,21 @@ if user_role == "Group Officer (GO)":
                     else:
                         date_receipt = None
                 with sc2:
-                    # Actual metrics entries
+                    # Helper to cleanly resolve saved storage values into standard date formatting objects
                     def get_saved_date_or_none(key_name):
                         if current_meta.get(key_name):
                             try: return datetime.strptime(current_meta[key_name], "%Y-%m-%d").date()
                             except: return None
                         return None
                         
-                    act_field_val = st.date_input("Actual Date of Completion of Field Audit", value=get_saved_date_or_none("actual_date_field"), default=None)
-                    act_hq_val = st.date_input("Actual Date of Sending Draft SAR to HQ", value=get_saved_date_or_none("actual_date_hq"), default=None)
-                    act_issue_val = st.date_input("Actual Date of Issue of SAR", value=get_saved_date_or_none("actual_date_issue"), default=None)
+                    # Resolving values into empty fallback assignments
+                    val_field = get_saved_date_or_none("actual_date_field")
+                    val_hq = get_saved_date_or_none("actual_date_hq")
+                    val_issue = get_saved_date_or_none("actual_date_issue")
+
+                    act_field_val = st.date_input("Actual Date of Completion of Field Audit", value=val_field if val_field else None)
+                    act_hq_val = st.date_input("Actual Date of Sending Draft SAR to HQ", value=val_hq if val_hq else None)
+                    act_issue_val = st.date_input("Actual Date of Issue of SAR", value=val_issue if val_issue else None)
                     
                 if st.form_submit_button("💾 Save SAR Pipeline Metrics"):
                     updated_meta = {
@@ -865,6 +869,7 @@ if user_role != "DG (Director General)":
                 st.info("🎉 No Pending ATNs")
                 return
             
+            # Case-insensitive alphabetical multi-level sort parameters initialization logic block
             sorted_data = sorted(data_list, key=lambda x: (x["Ministry Dept"].lower(), x["Target Date for Wings"]))
             
             html_rows = ""
